@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
 - 当前检查点：A（VoiceInk 上游基线）
-- 状态：进行中，尚未通过构建与真实运行验收
+- 状态：阻塞，等待完整 Xcode；尚未通过构建与真实运行验收
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -45,3 +45,4 @@
 
 - 当前未安装或未选择完整 Xcode。`/usr/bin/xcodebuild` 存在，但活动开发目录为 `/Library/Developer/CommandLineTools`，无法构建 macOS App。
 - 麦克风与 Accessibility 的最终授权和跨应用输入验证需要在构建产物可运行后于本机交互完成。
+- 该阻塞已在连续三个 goal turn 中重新核验；恢复条件是安装完整 Xcode，或提供现有 `Xcode.app` 的绝对路径以执行 `xcode-select`/`DEVELOPER_DIR` 构建。
