@@ -1,109 +1,29 @@
-<div align="center">
-  <img src="VoiceInk/Assets.xcassets/AppIcon.appiconset/256-mac.png" width="180" height="180" />
-  <h1>VoiceInk</h1>
-  <p>Voice to text app for macOS to transcribe what you say to text almost instantly</p>
+# my-voice
 
-  [![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-  ![Platform](https://img.shields.io/badge/platform-macOS%2014.0%2B-brightgreen)
-  [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Beingpax/VoiceInk)](https://github.com/Beingpax/VoiceInk/releases)
-  ![GitHub all releases](https://img.shields.io/github/downloads/Beingpax/VoiceInk/total)
-  ![GitHub stars](https://img.shields.io/github/stars/Beingpax/VoiceInk?style=social)
-  <p>
-    <a href="https://tryvoiceink.com">Website</a> •
-    <a href="https://www.youtube.com/@tryvoiceink">YouTube</a>
-  </p>
+面向 macOS 的个人语音输入工具。项目以固定的 VoiceInk 源码快照为底座，计划接入阿里云百炼 Streaming/Batch ASR，并围绕动态热词、最小上下文、分级回退和安全纠错学习进行定制。
 
-  <a href="https://tryvoiceink.com">
-    <img src="https://img.shields.io/badge/Download%20Now-Latest%20Version-blue?style=for-the-badge&logo=apple" alt="Download VoiceInk" width="250"/>
-  </a>
-</div>
+当前处于检查点 A（上游基线）：VoiceInk `cd1d96f182b03561f5ef66c6a91e511cd7409c4c` 已导入；百炼 Provider 尚未开始实现。实际进度和验证边界以 [docs/PROGRESS.md](docs/PROGRESS.md) 为准。
 
----
+## 文档
 
-VoiceInk is a native macOS application that transcribes what you say to text almost instantly. You can find all the information and download the app from [here](https://tryvoiceink.com). 
+- [产品需求 v0.2](docs/REQUIREMENTS.md)
+- [开发设计 v0.1](docs/DEVELOPMENT.md)
+- [开发进度](docs/PROGRESS.md)
+- [上游来源与本地差异](UPSTREAM.md)
+- [本地构建说明](BUILDING.md)
 
-![VoiceInk Mac App](https://github.com/user-attachments/assets/12367379-83e7-48a6-b52c-4488a6a04bba)
+## 本地构建
 
-After dedicating the past 5 months to developing this app, I've decided to open source it for the greater good. 
+需要完整 Xcode，而不只是 Command Line Tools：
 
-My goal is to make it **the most efficient and privacy-focused voice-to-text solution for macOS** that is a joy to use. While the source code is now open for experienced developers to build and contribute, purchasing a license helps support continued development and gives you access to automatic updates, priority support, and upcoming features.
-
-## Features
-
-- 🎙️ **Accurate Transcription**: Local AI models that transcribe your voice to text with 99% accuracy, almost instantly
-- 🔒 **Privacy First**: 100% offline processing ensures your data never leaves your device
-- ⚡ **Modes**: Intelligent app detection automatically applies your perfect pre-configured settings based on the app/ URL you're on
-- 🧠 **Context Aware**: Smart AI that understands your screen content and adapts to the context
-- 🎯 **Global Shortcuts**: Configurable keyboard or mouse shortcuts for quick recording and push-to-talk functionality
-- 📝 **Personal Dictionary**: Train the AI to understand your unique terminology with custom words, industry terms, and smart text replacements
-- 🔄 **Smart Modes**: Instantly switch between AI-powered modes optimized for different writing styles and contexts
-- 🤖 **AI Assistant**: Built-in voice assistant mode for a quick chatGPT like conversational assistant
-
-## Get Started
-
-### Download
-Get the latest version with a free trial from [tryvoiceink.com](https://tryvoiceink.com). Your purchase helps me work on VoiceInk full-time and continuously improve it with new features and updates.
-
-#### Homebrew
-Alternatively, you can install VoiceInk via `brew`:
-
-```shell
-brew install --cask voiceink
+```bash
+make check
+make local
+open dist/my-voice.app
 ```
 
-### Build from Source
-As an open-source project, you can build VoiceInk yourself by following the instructions in [BUILDING.md](BUILDING.md). However, the compiled version includes additional benefits like automatic updates, priority support via Discord and email, and helps fund ongoing development.
+本地构建使用独立的应用标识、Keychain 和 Application Support 目录；不会连接 VoiceInk 官方更新源，也不会调用其商业 License 服务。
 
-## Requirements
+## 许可
 
-- macOS 14.4 or later
-
-## Documentation
-
-- [Building from Source](BUILDING.md) - Detailed instructions for building the project
-- [Contributing Guidelines](CONTRIBUTING.md) - How to contribute to VoiceInk
-- [Code of Conduct](CODE_OF_CONDUCT.md) - Our community standards
-
-## Contributing
-
-This project is **not accepting pull requests** at this time. You're welcome to fork and modify VoiceInk for your own use.
-
-You can still contribute by:
-- Reporting bugs via [issues](https://github.com/Beingpax/VoiceInk/issues)
-- Suggesting features or enhancements
-- Improving documentation via issues
-
-For more details, see our [Contributing Guidelines](CONTRIBUTING.md). For build instructions, see our [Building Guide](BUILDING.md).
-
-## License
-
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-If you encounter any issues or have questions, please:
-1. Check the existing issues in the GitHub repository
-2. Create a new issue if your problem isn't already reported
-3. Provide as much detail as possible about your environment and the problem
-
-## Acknowledgments
-
-### Core Technology
-- [whisper.cpp](https://github.com/ggerganov/whisper.cpp) - High-performance inference of OpenAI's Whisper model
-- [FluidAudio](https://github.com/FluidInference/FluidAudio) - Used for Parakeet model implementation
-- [TranscribeCpp for Swift](https://github.com/Beingpax/Transcribe-cpp-swift) - SwiftPM distribution of [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp), used for local GGUF transcription models
-- [SenseVoice Small](https://huggingface.co/FunAudioLLM/SenseVoiceSmall) by FunAudioLLM / Alibaba - Multilingual model available under the [FunASR Model Open Source License Agreement](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)
-
-### Essential Dependencies
-- [Sparkle](https://github.com/sparkle-project/Sparkle) - Keeping VoiceInk up to date
-- [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) - User-customizable keyboard shortcuts
-- [LaunchAtLogin](https://github.com/sindresorhus/LaunchAtLogin) - Launch at login functionality
-- [MediaRemoteAdapter](https://github.com/ejbills/mediaremote-adapter) - Media playback control during recording
-- [Zip](https://github.com/marmelroy/Zip) - File compression and decompression utilities
-- [SelectedTextKit](https://github.com/tisfeng/SelectedTextKit) - A modern macOS library for getting selected text
-- [Swift Atomics](https://github.com/apple/swift-atomics) - Low-level atomic operations for thread-safe concurrent programming
-
-
----
-
-Made with ❤️ by Pax
+上游 VoiceInk 采用 GPL-3.0。本仓库保留上游 [LICENSE](LICENSE)，来源与固定提交见 [UPSTREAM.md](UPSTREAM.md)。当前项目仅供个人使用，不包含公开发布、签名公证或商业发行流程。

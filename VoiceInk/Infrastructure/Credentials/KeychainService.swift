@@ -25,7 +25,7 @@ final class KeychainService {
 
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "KeychainService")
     #if LOCAL_BUILD
-        private let service = "com.prakashjoshipax.VoiceInk.Local"
+        private let service = "com.will.myvoice"
         private let defaults = UserDefaults.standard
         private let legacyLocalPrefix = "LocalKeychain_"
     #else

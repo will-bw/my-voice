@@ -11,5 +11,5 @@ PROVISIONING_PROFILE_SPECIFIER =
 // Entitlements are set via absolute path in the Makefile command line
 // (relative paths break SPM package targets that resolve from their own source root)
 
-// Add LOCAL_BUILD compilation flag so Swift code can use #if LOCAL_BUILD
-SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) LOCAL_BUILD
+// Add local-build flags so Swift code can disable upstream release and license paths.
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) LOCAL_BUILD MYVOICE_LOCAL_BUILD

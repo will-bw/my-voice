@@ -3,10 +3,12 @@ DEPS_DIR := $(HOME)/VoiceInk-Dependencies
 WHISPER_CPP_DIR := $(DEPS_DIR)/whisper.cpp
 FRAMEWORK_PATH := $(WHISPER_CPP_DIR)/build-apple/whisper.xcframework
 LOCAL_DERIVED_DATA := $(CURDIR)/.local-build
+LOCAL_OUTPUT_DIR := $(CURDIR)/dist
+LOCAL_APP_NAME := my-voice
 LOCAL_CODESIGN_IDENTITY ?=
-RUN_APP_NAME ?= VoiceInk
+RUN_APP_NAME ?= my-voice
 
-.PHONY: all clean whisper setup build local check healthcheck help dev run release release-setup
+.PHONY: all clean whisper setup build local check healthcheck verify-local-isolation help dev run release release-setup
 
 # Default target
 all: check build
@@ -20,10 +22,14 @@ check:
 	@echo "Checking prerequisites..."
 	@command -v git >/dev/null 2>&1 || { echo "git is not installed"; exit 1; }
 	@command -v xcodebuild >/dev/null 2>&1 || { echo "xcodebuild is not installed (need Xcode)"; exit 1; }
+	@xcodebuild -version >/dev/null 2>&1 || { echo "xcodebuild is not usable; install/select the full Xcode app with xcode-select"; exit 1; }
 	@command -v swift >/dev/null 2>&1 || { echo "swift is not installed"; exit 1; }
 	@echo "Prerequisites OK"
 
 healthcheck: check
+
+verify-local-isolation:
+	@./scripts/verify-local-isolation.sh
 
 # Build process
 whisper:
@@ -80,33 +86,36 @@ local: check setup
 		CODE_SIGNING_ALLOWED=YES \
 		DEVELOPMENT_TEAM="" \
 		CODE_SIGN_ENTITLEMENTS="$(CURDIR)/VoiceInk/VoiceInk.local.entitlements" \
-		SWIFT_ACTIVE_COMPILATION_CONDITIONS='$$(inherited) LOCAL_BUILD' \
+		PRODUCT_BUNDLE_IDENTIFIER='com.will.myvoice.$$(TARGET_NAME:rfc1034identifier)' \
+		INFOPLIST_KEY_CFBundleDisplayName="my-voice" \
+		SWIFT_ACTIVE_COMPILATION_CONDITIONS='$$(inherited) LOCAL_BUILD MYVOICE_LOCAL_BUILD' \
 		-skipPackagePluginValidation \
 		-skipMacroValidation \
 		build
 	@APP_PATH="$(LOCAL_DERIVED_DATA)/Build/Products/Release/VoiceInk.app" && \
 	if [ -d "$$APP_PATH" ]; then \
-		echo "Copying VoiceInk.app to ~/Downloads..."; \
-		rm -rf "$$HOME/Downloads/VoiceInk.app"; \
-		ditto "$$APP_PATH" "$$HOME/Downloads/VoiceInk.app"; \
-		xattr -cr "$$HOME/Downloads/VoiceInk.app"; \
+		echo "Copying $(LOCAL_APP_NAME).app to $(LOCAL_OUTPUT_DIR)..."; \
+		mkdir -p "$(LOCAL_OUTPUT_DIR)"; \
+		rm -rf "$(LOCAL_OUTPUT_DIR)/$(LOCAL_APP_NAME).app"; \
+		ditto "$$APP_PATH" "$(LOCAL_OUTPUT_DIR)/$(LOCAL_APP_NAME).app"; \
+		xattr -cr "$(LOCAL_OUTPUT_DIR)/$(LOCAL_APP_NAME).app"; \
 		echo ""; \
-		echo "Build complete! App saved to: ~/Downloads/VoiceInk.app"; \
-		echo "Run with: open ~/Downloads/VoiceInk.app"; \
+		echo "Build complete! App saved to: $(LOCAL_OUTPUT_DIR)/$(LOCAL_APP_NAME).app"; \
+		echo "Run with: open $(LOCAL_OUTPUT_DIR)/$(LOCAL_APP_NAME).app"; \
 		echo ""; \
 		echo "Limitations of local builds:"; \
 		echo "  - No iCloud dictionary sync"; \
 		echo "  - No automatic updates (pull new code and rebuild to update)"; \
 	else \
-		echo "Error: Could not find built VoiceInk.app at $$APP_PATH"; \
+		echo "Error: Could not find built $(LOCAL_APP_NAME).app at $$APP_PATH"; \
 		exit 1; \
 	fi
 
 # Run application
 run:
-	@if [ -d "$$HOME/Downloads/$(RUN_APP_NAME).app" ]; then \
-		echo "Opening ~/Downloads/$(RUN_APP_NAME).app..."; \
-		open "$$HOME/Downloads/$(RUN_APP_NAME).app"; \
+	@if [ -d "$(LOCAL_OUTPUT_DIR)/$(RUN_APP_NAME).app" ]; then \
+		echo "Opening $(LOCAL_OUTPUT_DIR)/$(RUN_APP_NAME).app..."; \
+		open "$(LOCAL_OUTPUT_DIR)/$(RUN_APP_NAME).app"; \
 	else \
 		echo "Looking for $(RUN_APP_NAME).app in DerivedData..."; \
 		APP_PATH=$$(find "$$HOME/Library/Developer/Xcode/DerivedData" -name "$(RUN_APP_NAME).app" -type d | head -1) && \
@@ -146,6 +155,7 @@ help:
 	@echo "  build              Build the VoiceInk Xcode project"
 	@echo "  local              Build locally with stable signing when available"
 	@echo "    LOCAL_CODESIGN_IDENTITY=<SHA or name> overrides automatic Apple Development detection"
+	@echo "  verify-local-isolation  Check updater, license, bundle, Keychain, and data isolation"
 	@echo "  run                Launch the built VoiceInk app"
 	@echo "  dev                Build and run the app (for development)"
 	@echo "  release            Build DMG and Appcast using release-notes/<version>.html"

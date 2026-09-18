@@ -35,6 +35,14 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
         checksForUpdatesWhenDashboardAppears = Self.initialAutomaticCheckPreference(in: defaults)
         super.init()
 
+        #if LOCAL_BUILD
+            // Personal builds must never consult or install the official VoiceInk appcast.
+            canCheckForUpdates = false
+            checksForUpdatesWhenDashboardAppears = false
+            availableUpdate = nil
+            return
+        #endif
+
         let updater = updaterController.updater
 
         // VoiceInk owns automatic discovery through Sparkle's non-presenting probe.
@@ -49,6 +57,12 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func setChecksForUpdatesWhenDashboardAppears(_ value: Bool) {
+        #if LOCAL_BUILD
+            checksForUpdatesWhenDashboardAppears = false
+            availableUpdate = nil
+            return
+        #endif
+
         guard checksForUpdatesWhenDashboardAppears != value else { return }
 
         checksForUpdatesWhenDashboardAppears = value
@@ -62,6 +76,10 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func checkForUpdatesIfDue() {
+        #if LOCAL_BUILD
+            return
+        #endif
+
         guard checksForUpdatesWhenDashboardAppears else { return }
 
         let updater = updaterController.updater
@@ -76,6 +94,10 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func checkForUpdates() {
+        #if LOCAL_BUILD
+            return
+        #endif
+
         guard canCheckForUpdates else { return }
 
         // Any explicit check is interaction with the currently advertised update.
@@ -121,6 +143,10 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     private func checkForUpdateInformationIfPossible() {
+        #if LOCAL_BUILD
+            return
+        #endif
+
         let updater = updaterController.updater
         guard !updater.sessionInProgress else { return }
         updater.checkForUpdateInformation()
@@ -139,6 +165,10 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     private static func initialAutomaticCheckPreference(in defaults: UserDefaults) -> Bool {
+        #if LOCAL_BUILD
+            return false
+        #endif
+
         if let preference = defaults.object(forKey: DefaultsKey.automaticUpdateChecks) as? Bool {
             return preference
         }

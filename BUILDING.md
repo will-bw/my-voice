@@ -9,13 +9,11 @@
 ## Local Build
 
 ```bash
-git clone https://github.com/Beingpax/VoiceInk.git
-cd VoiceInk
 make local
-open ~/Downloads/VoiceInk.app
+open dist/my-voice.app
 ```
 
-`make local` prepares `whisper.xcframework` in `~/VoiceInk-Dependencies`, builds Release in `.local-build`, and copies `VoiceInk.app` to `~/Downloads`.
+`make local` prepares `whisper.xcframework` in `~/VoiceInk-Dependencies`, builds Release in `.local-build`, and copies the result to `dist/my-voice.app`.
 
 It uses `LocalBuild.xcconfig`, `VoiceInk.local.entitlements`, and the `LOCAL_BUILD` Swift flag. Without an override, it uses the only available Apple Development identity or falls back to ad-hoc signing when none or multiple are found.
 
@@ -31,7 +29,7 @@ Force ad-hoc signing:
 make local LOCAL_CODESIGN_IDENTITY=-
 ```
 
-Local builds do not include iCloud dictionary sync or automatic updates. Ad-hoc builds may require macOS permissions again after rebuilding.
+Local builds use an independent bundle identifier, Keychain service, Application Support directory, and output name. They do not include iCloud dictionary sync, official VoiceInk automatic updates, or commercial license network calls. Ad-hoc builds may require macOS permissions again after rebuilding.
 
 ## Other Commands
 
@@ -39,7 +37,7 @@ Local builds do not include iCloud dictionary sync or automatic updates. Ad-hoc 
 - `make whisper` — prepare `whisper.xcframework`
 - `make build` — build the standard Debug configuration
 - `make dev` — build and launch `VoiceInk Dev.app`
-- `make run` — launch `~/Downloads/VoiceInk.app`, or the first app found in DerivedData
+- `make run` — launch `dist/my-voice.app`, or the first app found in DerivedData
 - `make release` — create the signed release package
 - `make release-setup` — configure release notarization credentials
 - `make clean` — remove `~/VoiceInk-Dependencies`

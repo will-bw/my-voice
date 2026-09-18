@@ -88,6 +88,11 @@ final class LicenseViewModel: ObservableObject {
 
     @discardableResult
     func startTrial() -> Bool {
+        #if LOCAL_BUILD
+            licenseState = .licensed
+            return true
+        #endif
+
         clearValidationMessage()
 
         if trialStartDate != nil {
@@ -175,6 +180,10 @@ final class LicenseViewModel: ObservableObject {
     }
 
     var diagnosticLicenseStatus: String {
+        #if LOCAL_BUILD
+            return "Local Build (Commercial License Disabled)"
+        #endif
+
         if userDefaults.bool(forKey: pendingRemovalKey) {
             return "License Removed (Local Cleanup Pending)"
         }
@@ -195,12 +204,23 @@ final class LicenseViewModel: ObservableObject {
     }
 
     func openPurchaseLink() {
+        #if LOCAL_BUILD
+            return
+        #endif
+
         if let url = URL(string: "https://tryvoiceink.com/buy") {
             NSWorkspace.shared.open(url)
         }
     }
 
     func validateLicense(_ submittedKey: String) async {
+        #if LOCAL_BUILD
+            licenseState = .licensed
+            validationSuccess = true
+            validationMessage = String(localized: "Commercial license validation is disabled in this local build.")
+            return
+        #endif
+
         guard !isValidating else { return }
 
         if !isPersistentStateAvailable {
@@ -352,6 +372,11 @@ final class LicenseViewModel: ObservableObject {
     }
 
     func deactivateLicense() async {
+        #if LOCAL_BUILD
+            licenseState = .licensed
+            return
+        #endif
+
         guard !isDeactivating else { return }
 
         if !isPersistentStateAvailable {
