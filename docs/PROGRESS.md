@@ -13,6 +13,7 @@
 - 建立纯上游快照提交：`d99c4dd`。
 - 保留 GPL-3.0 `LICENSE`，并在 `UPSTREAM.md` 记录来源、SHA、日期、构建方式和本地差异。
 - 已实现本地构建的应用名、Bundle ID、Keychain、Application Support、自动更新和商业 License 隔离；尚待 Xcode 编译验证。
+- 已核对 SwiftPM 锁文件；将上游 Makefile 的浮动 `whisper.cpp` 拉取固定为官方提交 `da545722…`，并增加来源、脏工作区和 framework revision 校验。
 
 ## 验证命令与结果
 
@@ -27,6 +28,7 @@
 | `swift --version` | Apple Swift 6.3.3 |
 | `xcodebuild -version` | 失败：当前开发目录是 Command Line Tools，不是完整 Xcode |
 | `make verify-local-isolation` | 通过：更新、License、Bundle ID、Keychain、Application Support 与输出路径隔离检查全部通过 |
+| 临时 Git checkout 精确 fetch `da545722…` | 通过：HEAD、来源 URL 和提交时间与固定记录一致 |
 | 在 `/Applications`、`~/Applications`、`~/Downloads`、桌面范围查找 Xcode | 未发现 `Xcode.app`、XIP 或 DMG |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。

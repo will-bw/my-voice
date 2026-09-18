@@ -19,6 +19,12 @@ rg -q 'private let service = "com\.will\.myvoice"' \
     VoiceInk/Infrastructure/Credentials/KeychainService.swift
 rg -q '"com\.will\.myvoice"' VoiceInk/App/Configuration/AppIdentity.swift
 rg -q 'com\.will\.myvoice\.VoiceInkRefineXPC' Shared/VoiceInkRefineXPCProtocol.swift
+rg -q 'WHISPER_CPP_REVISION := da54572229bcf64ba367d96c7ef15770376c4280' Makefile
+
+if rg -q 'git pull' Makefile; then
+    print -u2 'the build still pulls a floating dependency revision'
+    exit 1
+fi
 
 if rg -q 'appendingPathComponent\("com\.prakashjoshipax\.VoiceInk"' VoiceInk; then
     print -u2 'an official VoiceInk Application Support path is still hard-coded'

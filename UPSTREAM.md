@@ -26,6 +26,8 @@ open dist/my-voice.app
 
 `make local` 使用 `LocalBuild.xcconfig`、`VoiceInk.local.entitlements` 和 `LOCAL_BUILD`/`MYVOICE_LOCAL_BUILD` 编译条件。构建产物、Derived Data 和外部模型/依赖不得提交。
 
+SwiftPM 依赖由上游 `Package.resolved` 固定。上游 Makefile 原本会拉取浮动的 `whisper.cpp` 主分支；本项目将它固定为官方提交 `da54572229bcf64ba367d96c7ef15770376c4280`（2026-09-15），即 VoiceInk 固定提交之前最新的上游提交。构建脚本会验证来源、工作区状态和 framework revision 标记，不会对带有本地改动的外部 checkout 执行覆盖操作。
+
 ## 当前本地差异
 
 检查点 A 在纯快照之后引入以下隔离改动：

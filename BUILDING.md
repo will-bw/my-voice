@@ -13,7 +13,7 @@ make local
 open dist/my-voice.app
 ```
 
-`make local` prepares `whisper.xcframework` in `~/VoiceInk-Dependencies`, builds Release in `.local-build`, and copies the result to `dist/my-voice.app`.
+`make local` prepares the pinned `whisper.cpp` revision recorded in the Makefile and its `whisper.xcframework` under `~/VoiceInk-Dependencies`, builds Release in `.local-build`, and copies the result to `dist/my-voice.app`. It refuses to overwrite a dependency checkout with local changes or an unexpected Git origin.
 
 It uses `LocalBuild.xcconfig`, `VoiceInk.local.entitlements`, and the `LOCAL_BUILD` Swift flag. Without an override, it uses the only available Apple Development identity or falls back to ad-hoc signing when none or multiple are found.
 
@@ -40,7 +40,7 @@ Local builds use an independent bundle identifier, Keychain service, Application
 - `make run` — launch `dist/my-voice.app`, or the first app found in DerivedData
 - `make release` — create the signed release package
 - `make release-setup` — configure release notarization credentials
-- `make clean` — remove `~/VoiceInk-Dependencies`
+- `make clean` — remove the managed `~/VoiceInk-Dependencies/whisper.cpp` checkout and framework
 - `make help` — list all commands
 
 ## Build with Xcode

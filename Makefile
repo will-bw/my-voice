@@ -2,6 +2,9 @@
 DEPS_DIR := $(HOME)/VoiceInk-Dependencies
 WHISPER_CPP_DIR := $(DEPS_DIR)/whisper.cpp
 FRAMEWORK_PATH := $(WHISPER_CPP_DIR)/build-apple/whisper.xcframework
+WHISPER_CPP_REPOSITORY := https://github.com/ggml-org/whisper.cpp.git
+WHISPER_CPP_REVISION := da54572229bcf64ba367d96c7ef15770376c4280
+WHISPER_REVISION_FILE := $(FRAMEWORK_PATH)/.my-voice-whisper-revision
 LOCAL_DERIVED_DATA := $(CURDIR)/.local-build
 LOCAL_OUTPUT_DIR := $(CURDIR)/dist
 LOCAL_APP_NAME := my-voice
@@ -34,16 +37,36 @@ verify-local-isolation:
 # Build process
 whisper:
 	@mkdir -p $(DEPS_DIR)
-	@if [ ! -d "$(FRAMEWORK_PATH)" ]; then \
-		echo "Building whisper.xcframework in $(DEPS_DIR)..."; \
-		if [ ! -d "$(WHISPER_CPP_DIR)" ]; then \
-			git clone https://github.com/ggerganov/whisper.cpp.git $(WHISPER_CPP_DIR); \
-		else \
-			(cd $(WHISPER_CPP_DIR) && git pull); \
-		fi; \
-		cd $(WHISPER_CPP_DIR) && ./build-xcframework.sh; \
+	@if [ ! -e "$(WHISPER_CPP_DIR)" ]; then \
+		mkdir -p "$(WHISPER_CPP_DIR)"; \
+		git -C "$(WHISPER_CPP_DIR)" init; \
+		git -C "$(WHISPER_CPP_DIR)" remote add origin "$(WHISPER_CPP_REPOSITORY)"; \
+	elif [ ! -d "$(WHISPER_CPP_DIR)/.git" ]; then \
+		echo "$(WHISPER_CPP_DIR) exists but is not a Git checkout; refusing to overwrite it"; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git -C "$(WHISPER_CPP_DIR)" status --porcelain)" ]; then \
+		echo "$(WHISPER_CPP_DIR) has local changes; refusing to change the pinned dependency"; \
+		exit 1; \
+	fi
+	@ORIGIN_URL=$$(git -C "$(WHISPER_CPP_DIR)" remote get-url origin 2>/dev/null || true); \
+	case "$$ORIGIN_URL" in \
+		"https://github.com/ggml-org/whisper.cpp.git"|"https://github.com/ggerganov/whisper.cpp.git") ;; \
+		*) echo "Unexpected whisper.cpp origin: $$ORIGIN_URL"; exit 1 ;; \
+	esac; \
+	CURRENT_REVISION=$$(git -C "$(WHISPER_CPP_DIR)" rev-parse HEAD 2>/dev/null || true); \
+	if [ "$$CURRENT_REVISION" != "$(WHISPER_CPP_REVISION)" ]; then \
+		git -C "$(WHISPER_CPP_DIR)" fetch --depth 1 origin "$(WHISPER_CPP_REVISION)"; \
+		git -C "$(WHISPER_CPP_DIR)" checkout --detach "$(WHISPER_CPP_REVISION)"; \
+	fi
+	@if [ ! -f "$(WHISPER_REVISION_FILE)" ] || \
+		[ "$$(sed -n '1p' "$(WHISPER_REVISION_FILE)" 2>/dev/null)" != "$(WHISPER_CPP_REVISION)" ]; then \
+		echo "Building pinned whisper.xcframework at $(WHISPER_CPP_REVISION)..."; \
+		rm -rf "$(FRAMEWORK_PATH)"; \
+		cd "$(WHISPER_CPP_DIR)" && ./build-xcframework.sh; \
+		printf '%s\n' "$(WHISPER_CPP_REVISION)" > "$(WHISPER_REVISION_FILE)"; \
 	else \
-		echo "whisper.xcframework already built in $(DEPS_DIR), skipping build"; \
+		echo "Pinned whisper.xcframework already built at $(WHISPER_CPP_REVISION), skipping build"; \
 	fi
 
 setup: whisper
@@ -143,7 +166,7 @@ release-setup:
 # Cleanup
 clean:
 	@echo "Cleaning build artifacts..."
-	@rm -rf $(DEPS_DIR)
+	@rm -rf "$(WHISPER_CPP_DIR)"
 	@echo "Clean complete"
 
 # Help
