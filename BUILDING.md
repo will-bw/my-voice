@@ -38,7 +38,7 @@ Force ad-hoc signing:
 make local LOCAL_CODESIGN_IDENTITY=-
 ```
 
-Local builds use an independent bundle identifier, Keychain service, Application Support directory, and output name. They do not include iCloud dictionary sync, official VoiceInk automatic updates, or commercial license network calls. Ad-hoc builds may require macOS permissions again after rebuilding.
+Local builds use an independent bundle identifier, Keychain service, Application Support directory, and output name. They do not include iCloud dictionary sync, official VoiceInk automatic updates, or commercial license network calls. Apple Development signing gives rebuilt apps a stable designated requirement; ad-hoc builds may require macOS permissions again after rebuilding.
 
 ## Other Commands
 
@@ -67,4 +67,5 @@ Select the `VoiceInk` scheme. Run builds `VoiceInk Dev.app`; Archive uses Releas
 - If `make check` reports a missing Metal Toolchain, run `xcodebuild -downloadComponent MetalToolchain`.
 - Run `make whisper` if the framework is missing.
 - If several Apple Development identities exist, set `LOCAL_CODESIGN_IDENTITY` explicitly.
+- If Xcode shows an Apple Development certificate but `security find-identity -v -p codesigning` reports no valid identities, install the matching Apple WWDR intermediate certificate from the [Apple PKI page](https://www.apple.com/certificateauthority/). Apple Development certificates currently use Worldwide Developer Relations G3.
 - For additional help, open a [GitHub issue](https://github.com/Beingpax/VoiceInk/issues).

@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
 - 当前检查点：A（VoiceInk 上游基线）
-- 状态：进行中；Release 构建与启动已通过，等待 Accessibility 与端到端听写交互验收
+- 状态：进行中；稳定签名的 Release 构建已通过，等待 Accessibility 与端到端听写交互验收
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -17,6 +17,7 @@
 - 安装 CMake 4.4.3 与 Xcode Metal Toolchain 17F109；固定 whisper XCFramework 已成功生成。
 - `make local` Release 构建成功，生成 `dist/my-voice.app`；应用已在当前 Mac 启动并进入权限引导页。
 - 在 Onboarding 模型下载中发现 FluidAudio 默认共享官方缓存路径；已改为本地构建专属的 `com.will.myvoice/FluidAudio/Models`，并完成第二次 Release 构建。
+- 通过 Xcode Personal Team 创建 Apple Development 证书，补齐 Apple WWDR G3 中间证书，并修复 `LocalBuild.xcconfig` 对上游 SDK 条件签名设置的覆盖；`make local` 现可使用稳定签名身份。
 
 ## 验证命令与结果
 
@@ -48,12 +49,16 @@
 | 专属数据目录 | 已创建 `~/Library/Application Support/com.will.myvoice`；数据库、录音和模型路径与官方 VoiceInk 隔离 |
 | 新 ad-hoc 二进制权限状态 | 麦克风仍已授权；Accessibility 需对重建后的二进制重新授权 |
 | 运行期网络观察 | 空闲/权限页无网络 socket；模型下载阶段仅连接本机代理，未发现官方更新或 License 连接 |
+| `security find-identity -v -p codesigning` | 通过：识别 1 个有效 Apple Development 身份 |
+| 稳定签名 `make local LOCAL_CODESIGN_IDENTITY=…` | 通过：`** BUILD SUCCEEDED **`；主 App、XPC 与嵌套代码使用 Apple Development 身份 |
+| `codesign --verify --deep --strict --verbose=4 dist/my-voice.app` | 通过；TeamIdentifier `22ABMXL88T`，指定要求基于 Apple 证书链与 Bundle ID，不再绑定 cdhash |
+| `spctl --assess --type execute` | 拒绝；符合未公证 Apple Development 本机开发构建的预期，不作为发布包 |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。
 
 ## 剩余工作
 
-- 由用户为最终重建产物在 macOS 系统设置中重新授权 Accessibility；随后重启并复核权限保持稳定。
+- 由用户为首次稳定签名产物在 macOS 系统设置中授权 Accessibility；随后再次重建并复核授权是否保持稳定。
 - 在当前 Mac 完成全局快捷键、焦点恢复、跨应用文本投递和 SenseVoice Small 的真实验证。
 - 运行期间复核不会连接官方更新/License 服务，并确认本地数据目录在完成 Onboarding 后与官方 VoiceInk 隔离。
 - 检查点 A 验收通过后再开始 B1，并在实现当天重新核对百炼官方 Streaming、Batch、即时热词和上下文协议。
@@ -64,6 +69,6 @@
 
 ## 当前需交互验证
 
-- 应用权限页显示麦克风已授权；因 ad-hoc 重建使代码身份变化，Accessibility 必须由用户为最终产物在系统设置中重新授权。
+- 已从 ad-hoc 切换到稳定 Apple Development 身份；应用需为该新身份完成一次 Accessibility 授权，之后用同一身份重建并验证权限保持。
 - 授权后仍需完成全局快捷键、跨应用投递和 SenseVoice Small 的真实验证，检查点 A 尚未验收完成。
 - 首次 Parakeet 下载被隔离审计主动停止；共享 `~/Library/Application Support/FluidAudio` 中约 13 MB 的部分下载未自动删除，避免误删既有用户数据。
