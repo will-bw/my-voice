@@ -179,6 +179,15 @@ class ImportExportService {
             audioRetentionPeriod: UserDefaults.standard.integer(forKey: CleanupSettingsKeys.audioRetentionPeriod),
             isAudioHistoryEnabled: AudioHistorySettings.isEnabled,
             audioHistoryMaximumBytes: AudioHistorySettings.maximumBytes,
+            hotwordExperimentArm: HotwordExperimentArm.current.rawValue,
+            useAppRecognitionSignal: RecognitionContextSignalSettings.usesApp(),
+            useURLRecognitionSignal: RecognitionContextSignalSettings.usesURL(),
+            useModeRecognitionSignal: RecognitionContextSignalSettings.usesMode(),
+            recognitionContextDenyListsEnabled: ContextPrivacyPolicy.areDenyListsEnabled(),
+            deniedRecognitionContextApps: UserDefaults.standard.stringArray(
+                forKey: ContextPrivacyPolicy.deniedAppsDefaultsKey),
+            deniedRecognitionContextHosts: UserDefaults.standard.stringArray(
+                forKey: ContextPrivacyPolicy.deniedHostsDefaultsKey),
 
             isSystemMuteEnabled: mediaController.isSystemMuteEnabled,
             isPauseMediaEnabled: playbackController.isPauseMediaEnabled,

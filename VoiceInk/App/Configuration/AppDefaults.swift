@@ -33,19 +33,48 @@ enum AudioHistorySettings {
     }
 
     static var recordingsDirectory: URL {
-        if isEnabled,
-            let path = UserDefaults.standard.string(forKey: CleanupSettingsKeys.audioHistoryDirectory),
-            !path.isEmpty
-        {
+        guard isEnabled else { return temporaryRecordingsDirectory }
+        if let path = UserDefaults.standard.string(forKey: CleanupSettingsKeys.audioHistoryDirectory),
+            !path.isEmpty {
             return URL(fileURLWithPath: path, isDirectory: true)
         }
         return defaultRecordingsDirectory
+    }
+
+    static var temporaryRecordingsDirectory: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(AppIdentity.applicationSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("SessionRecordings", isDirectory: true)
     }
 
     static var defaultRecordingsDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(AppIdentity.applicationSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("Recordings", isDirectory: true)
+    }
+
+    static func removeStaleTemporaryRecordings(
+        fileManager: FileManager = .default,
+        directory: URL? = nil
+    ) -> (removedCount: Int, errorCount: Int) {
+        let directory = directory ?? temporaryRecordingsDirectory
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return (0, 0) }
+
+        var removedCount = 0
+        var errorCount = 0
+        for file in files {
+            do {
+                try fileManager.removeItem(at: file)
+                removedCount += 1
+            } catch {
+                errorCount += 1
+            }
+        }
+        return (removedCount, errorCount)
     }
 }
 
@@ -198,6 +227,10 @@ enum AppDefaults {
             CloudTranscriptionSettings.timeoutKey: CloudTranscriptionSettings.defaultTimeout,
             AutoLearnSettings.isEnabledKey: true,
             AutoLearnSettings.reviewScheduleKey: AutoLearnReviewSchedule.manually.rawValue,
+            RecognitionContextSignalSettings.useAppSignalKey: true,
+            RecognitionContextSignalSettings.useURLSignalKey: true,
+            RecognitionContextSignalSettings.useModeSignalKey: true,
+            ContextPrivacyPolicy.denyListsEnabledDefaultsKey: true,
 
             // Cleanup
             CleanupSettingsKeys.isTranscriptionCleanupEnabled: false,

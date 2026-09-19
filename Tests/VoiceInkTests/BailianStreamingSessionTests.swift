@@ -136,6 +136,58 @@ final class BailianStreamingSessionTests: XCTestCase {
         }
     }
 
+    func testAudioCannotBeSentBeforeTaskStarted() async throws {
+        let (session, transport) = try makeSession()
+        try await session.connect(apiKey: "secret", hints: BailianRecognitionHints())
+        do {
+            try await session.sendAudio(Data([1]))
+            XCTFail("Expected pre-start audio to fail")
+        } catch let error as BailianError {
+            XCTAssertEqual(error, .protocolViolation("收到 task-started 前不能发送音频"))
+        }
+        let closed = await transport.closed()
+        XCTAssertTrue(closed)
+    }
+
+    func testUnknownServerFieldsAreIgnored() async throws {
+        let (session, transport) = try makeSession()
+        try await session.connect(apiKey: "secret", hints: BailianRecognitionHints())
+        let id = try await taskID(from: transport)
+        await session.handleServerText(
+            #"{"header":{"task_id":"\#(id)","event":"task-started","future":"ignored"},"payload":{"new_field":true}}"#
+        )
+        let finalTask = Task { try await session.finish(timeout: .seconds(1)) }
+        await Task.yield()
+        await session.handleServerText(
+            #"{"header":{"task_id":"\#(id)","event":"result-generated"},"payload":{"output":{"sentence":{"text":"兼容","sentence_end":true,"sentence_id":1,"future":42}}}}"#
+        )
+        await session.handleServerText(finished(id))
+        let finalText = try await finalTask.value
+        XCTAssertEqual(finalText, "兼容")
+    }
+
+    func testPartialRevisionEmitsLatestTextWithoutCommittingEarly() async throws {
+        let (session, transport) = try makeSession()
+        var outputs = session.outputs.makeAsyncIterator()
+        try await session.connect(apiKey: "secret", hints: BailianRecognitionHints())
+        let id = try await taskID(from: transport)
+
+        await session.handleServerText(started(id))
+        await session.handleServerText(result(id, id: 1, text: "草", isFinal: false))
+        await session.handleServerText(result(id, id: 1, text: "草稿", isFinal: false))
+        await session.handleServerText(result(id, id: 1, text: "草稿完成", isFinal: true))
+
+        let startedOutput = await outputs.next()
+        let firstPartial = await outputs.next()
+        let revisedPartial = await outputs.next()
+        let committed = await outputs.next()
+        XCTAssertEqual(startedOutput, .sessionStarted)
+        XCTAssertEqual(firstPartial, .partial("草"))
+        XCTAssertEqual(revisedPartial, .partial("草稿"))
+        XCTAssertEqual(committed, .committed("草稿完成"))
+        await session.cancel()
+    }
+
     func testEmptyFinalFails() async throws {
         let (session, transport) = try makeSession()
         try await session.connect(apiKey: "secret", hints: BailianRecognitionHints())

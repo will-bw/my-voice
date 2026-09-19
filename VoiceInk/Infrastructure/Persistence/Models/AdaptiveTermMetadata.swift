@@ -46,7 +46,7 @@ final class AdaptiveTermMetadata {
         self.language = language
         self.isEnabled = isEnabled
         self.isPinned = isPinned
-        self.userWeight = userWeight
+        self.userWeight = Self.validUserWeight(userWeight)
         self.useCount = max(0, useCount)
         self.correctionCount = max(0, correctionCount)
         self.positiveFeedbackCount = max(0, positiveFeedbackCount)
@@ -61,9 +61,37 @@ final class AdaptiveTermMetadata {
     var hosts: Set<String> { Self.decode(urlHosts) }
     var modes: Set<String> { Self.decode(modeIdentifiers) }
 
+    func setUserWeight(_ value: Int?) {
+        userWeight = Self.validUserWeight(value)
+    }
+
+    func recordSuccessfulUse(
+        appBundleIdentifier: String?,
+        urlHost: String?,
+        modeIdentifier: String?,
+        at timestamp: Date = Date()
+    ) {
+        useCount += 1
+        lastUsedAt = timestamp
+        if let appBundleIdentifier, !appBundleIdentifier.isEmpty {
+            appBundleIdentifiers = Self.encode(appIdentifiers.union([appBundleIdentifier]))
+        }
+        if let urlHost, !urlHost.isEmpty {
+            urlHosts = Self.encode(hosts.union([urlHost]))
+        }
+        if let modeIdentifier, !modeIdentifier.isEmpty {
+            modeIdentifiers = Self.encode(modes.union([modeIdentifier]))
+        }
+    }
+
     static func normalize(_ term: String) -> String {
         term.trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private static func validUserWeight(_ value: Int?) -> Int? {
+        guard let value else { return nil }
+        return (1...5).contains(value) || value == 50 ? value : nil
     }
 
     private static func encode(_ values: Set<String>) -> String {
@@ -72,6 +100,42 @@ final class AdaptiveTermMetadata {
 
     private static func decode(_ value: String) -> Set<String> {
         Set(value.split(separator: "\n").map { String($0).lowercased() })
+    }
+}
+
+@MainActor
+enum AdaptiveTermUsageRecorder {
+    static func recordSuccessfulUse(
+        hints: RecognitionHintSnapshot?,
+        transcript: String,
+        in context: ModelContext,
+        timestamp: Date = Date()
+    ) throws {
+        guard let hints,
+            hints.privacyDecision == "allowed",
+            !hints.vocabulary.isEmpty
+        else { return }
+
+        let normalizedTranscript = AdaptiveTermMetadata.normalize(transcript)
+        guard !normalizedTranscript.isEmpty else { return }
+        let metadata = try context.fetch(FetchDescriptor<AdaptiveTermMetadata>())
+        let metadataByTerm = Dictionary(
+            metadata.map { ($0.normalizedTerm, $0) },
+            uniquingKeysWith: { lhs, _ in lhs }
+        )
+        for term in hints.vocabulary.keys {
+            let normalizedTerm = AdaptiveTermMetadata.normalize(term)
+            guard !normalizedTerm.isEmpty,
+                normalizedTranscript.contains(normalizedTerm),
+                let item = metadataByTerm[normalizedTerm]
+            else { continue }
+            item.recordSuccessfulUse(
+                appBundleIdentifier: hints.localAppBundleIdentifier,
+                urlHost: hints.localURLHost,
+                modeIdentifier: hints.localModeIdentifier,
+                at: timestamp
+            )
+        }
     }
 }
 

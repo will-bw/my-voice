@@ -3,6 +3,73 @@ import XCTest
 @testable import VoiceInk
 
 final class RecognitionHintTests: XCTestCase {
+    @MainActor
+    func testExplicitHotwordWeightAcceptsProtocolValuesOnly() {
+        let metadata = AdaptiveTermMetadata(term: "Morrow", userWeight: 49)
+        XCTAssertNil(metadata.userWeight)
+        metadata.setUserWeight(50)
+        XCTAssertEqual(metadata.userWeight, 50)
+        metadata.setUserWeight(6)
+        XCTAssertNil(metadata.userWeight)
+        metadata.setUserWeight(5)
+        XCTAssertEqual(metadata.userWeight, 5)
+    }
+
+    @MainActor
+    func testSuccessfulSelectedTermRecordsOnlyLocalUsageSignals() throws {
+        let schema = Schema([AdaptiveTermMetadata.self])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let metadata = AdaptiveTermMetadata(term: "Morrow")
+        container.mainContext.insert(metadata)
+        let timestamp = Date(timeIntervalSince1970: 2_000_000)
+        let hints = RecognitionHintSnapshot(
+            vocabulary: ["Morrow": 4, "Unused": 4],
+            languageHints: ["zh"],
+            context: nil,
+            experimentArm: .dynamic,
+            candidateCount: 2,
+            contextKind: nil,
+            sourceTypes: [],
+            privacyDecision: "allowed",
+            selectionTrace: RecognitionHintSelectionTrace(
+                candidateCount: 2, selectedCount: 2, suppressedCount: 0),
+            localAppBundleIdentifier: "com.example.editor",
+            localURLHost: "docs.example",
+            localModeIdentifier: "coding"
+        )
+
+        try AdaptiveTermUsageRecorder.recordSuccessfulUse(
+            hints: hints,
+            transcript: "继续完善 Morrow",
+            in: container.mainContext,
+            timestamp: timestamp
+        )
+
+        XCTAssertEqual(metadata.useCount, 1)
+        XCTAssertEqual(metadata.lastUsedAt, timestamp)
+        XCTAssertEqual(metadata.appIdentifiers, Set(["com.example.editor"]))
+        XCTAssertEqual(metadata.hosts, Set(["docs.example"]))
+        XCTAssertEqual(metadata.modes, Set(["coding"]))
+    }
+
+    func testLocalRecognitionSignalsDefaultOnAndCanBeDisabledIndependently() throws {
+        let suite = "RecognitionHintTests.Signals.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertTrue(RecognitionContextSignalSettings.usesApp(defaults: defaults))
+        XCTAssertTrue(RecognitionContextSignalSettings.usesURL(defaults: defaults))
+        XCTAssertTrue(RecognitionContextSignalSettings.usesMode(defaults: defaults))
+
+        defaults.set(false, forKey: RecognitionContextSignalSettings.useURLSignalKey)
+        XCTAssertTrue(RecognitionContextSignalSettings.usesApp(defaults: defaults))
+        XCTAssertFalse(RecognitionContextSignalSettings.usesURL(defaults: defaults))
+        XCTAssertTrue(RecognitionContextSignalSettings.usesMode(defaults: defaults))
+    }
+
     func testExperimentArmsAreDeterministicAndDoNotPad() {
         let candidates = ["Gamma", "Alpha", "Beta"].map {
             HotwordSelector.Candidate(term: $0, metadata: nil, isGlobalFallback: true)
@@ -92,6 +159,7 @@ final class RecognitionHintTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
+        XCTAssertTrue(ContextPrivacyPolicy.areDenyListsEnabled(defaults: defaults))
         XCTAssertTrue(ContextPrivacyPolicy.decision(
             appBundleIdentifier: "com.example.app",
             urlHost: "safe.example",
@@ -121,6 +189,20 @@ final class RecognitionHintTests: XCTestCase {
             focusedControlIsSecure: false,
             defaults: defaults
         ).reason, "url-deny-list")
+
+        defaults.set(false, forKey: ContextPrivacyPolicy.denyListsEnabledDefaultsKey)
+        XCTAssertTrue(ContextPrivacyPolicy.decision(
+            appBundleIdentifier: "com.example.app",
+            urlHost: "mail.private.example",
+            focusedControlIsSecure: false,
+            defaults: defaults
+        ).allowsContext)
+        XCTAssertEqual(ContextPrivacyPolicy.decision(
+            appBundleIdentifier: nil,
+            urlHost: nil,
+            focusedControlIsSecure: true,
+            defaults: defaults
+        ).reason, "secure-control")
     }
 
     func testLiteralContextIsBoundedAndContainsOnlyOriginalFragments() {

@@ -1,10 +1,13 @@
+import SwiftData
 import SwiftUI
 
 struct DiagnosticsSettingsView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var isExportingLogs = false
     @State private var exportedLogURL: URL?
     @State private var showLogExportError = false
     @State private var logExportError: String = ""
+    @State private var showExportPreview = false
 
     var body: some View {
         LabeledContent {
@@ -18,9 +21,7 @@ struct DiagnosticsSettingsView: View {
                         .foregroundColor(AppTheme.Status.positive)
                 }
 
-                Button("Export") {
-                    exportDiagnosticLogs()
-                }
+                Button("Review & Export") { showExportPreview = true }
                 .disabled(isExportingLogs)
             }
         } label: {
@@ -29,13 +30,19 @@ struct DiagnosticsSettingsView: View {
                     ProgressView()
                         .controlSize(.small)
                 }
-                Text("Export Logs")
+                Text("Redacted Diagnostics")
             }
         }
         .alert("Export Failed", isPresented: $showLogExportError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(logExportError)
+        }
+        .alert("Diagnostic Package Contents", isPresented: $showExportPreview) {
+            Button("Cancel", role: .cancel) {}
+            Button("Export…") { exportDiagnosticLogs() }
+        } message: {
+            Text(RedactedDiagnosticExporter.previewText)
         }
     }
 
@@ -45,7 +52,9 @@ struct DiagnosticsSettingsView: View {
 
         Task {
             do {
-                let url = try await LogExporter.shared.exportLogs()
+                let url = try await MainActor.run {
+                    try RedactedDiagnosticExporter.export(from: modelContext)
+                }
                 await MainActor.run {
                     exportedLogURL = url
                     isExportingLogs = false

@@ -1,4 +1,5 @@
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -77,6 +78,34 @@ class EvaluationToolTests(unittest.TestCase):
         self.assertFalse(MODULE.groups_have_complete_coverage(incomplete_groups, manifest))
         incomplete_groups[("candidate", "cloud")].append({"id": "two"})
         self.assertTrue(MODULE.groups_have_complete_coverage(incomplete_groups, manifest))
+        self.assertFalse(MODULE.parameter_freeze_allowed(incomplete_groups, manifest))
+
+        complete_experiment = {
+            (arm, "cloud"): [{"id": "one"}, {"id": "two"}]
+            for arm in ("none", "all", "dynamic")
+        }
+        self.assertTrue(MODULE.parameter_freeze_allowed(complete_experiment, manifest))
+        split_providers = {
+            ("none", "cloud-a"): [{"id": "one"}, {"id": "two"}],
+            ("all", "cloud-b"): [{"id": "one"}, {"id": "two"}],
+            ("dynamic", "cloud-c"): [{"id": "one"}, {"id": "two"}],
+        }
+        self.assertFalse(MODULE.parameter_freeze_allowed(split_providers, manifest))
+
+    def test_manifest_command_validation_requires_real_audio_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            rows = [
+                {
+                    "id": f"sample-{index}",
+                    "audio_path": f"audio/{index}.wav",
+                    "reference_text": "reference",
+                    "entities": [{"text": "Entity", "type": "term"}] if index < 50 else [],
+                }
+                for index in range(100)
+            ]
+            with self.assertRaisesRegex(ValueError, "audio file does not exist"):
+                MODULE.validate_manifest(rows, audio_base_directory=base)
 
 
 if __name__ == "__main__":

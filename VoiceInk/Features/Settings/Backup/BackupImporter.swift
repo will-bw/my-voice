@@ -176,6 +176,29 @@ enum BackupImporter {
                 forKey: CleanupSettingsKeys.audioHistoryMaximumBytes
             )
         }
+        if let rawArm = general.hotwordExperimentArm,
+            HotwordExperimentArm(rawValue: rawArm) != nil
+        {
+            UserDefaults.standard.set(rawArm, forKey: HotwordExperimentArm.defaultsKey)
+        }
+        if let enabled = general.useAppRecognitionSignal {
+            UserDefaults.standard.set(enabled, forKey: RecognitionContextSignalSettings.useAppSignalKey)
+        }
+        if let enabled = general.useURLRecognitionSignal {
+            UserDefaults.standard.set(enabled, forKey: RecognitionContextSignalSettings.useURLSignalKey)
+        }
+        if let enabled = general.useModeRecognitionSignal {
+            UserDefaults.standard.set(enabled, forKey: RecognitionContextSignalSettings.useModeSignalKey)
+        }
+        if let enabled = general.recognitionContextDenyListsEnabled {
+            UserDefaults.standard.set(enabled, forKey: ContextPrivacyPolicy.denyListsEnabledDefaultsKey)
+        }
+        if let deniedApps = general.deniedRecognitionContextApps {
+            UserDefaults.standard.set(deniedApps, forKey: ContextPrivacyPolicy.deniedAppsDefaultsKey)
+        }
+        if let deniedHosts = general.deniedRecognitionContextHosts {
+            UserDefaults.standard.set(deniedHosts, forKey: ContextPrivacyPolicy.deniedHostsDefaultsKey)
+        }
 
         if let muteSystem = general.isSystemMuteEnabled {
             mediaController.isSystemMuteEnabled = muteSystem

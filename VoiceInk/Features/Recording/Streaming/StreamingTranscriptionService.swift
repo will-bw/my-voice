@@ -2,37 +2,79 @@ import Foundation
 import SwiftData
 import os
 
-/// Sendable source that bridges audio chunks from any thread into an AsyncStream.
-private final class AudioChunkSource: @unchecked Sendable {
-    let stream: AsyncStream<Data>
-    private let continuation: AsyncStream<Data>.Continuation
+/// Non-blocking bridge from the recorder callback to the async network sender.
+/// The default byte budget is exactly two seconds of 16 kHz, mono, PCM16 audio.
+final class AudioChunkSource: @unchecked Sendable {
+    static let defaultMaximumBufferedBytes = 16_000 * 2 * 2
 
-    init() {
-        let (stream, continuation) = AsyncStream.makeStream(
-            of: Data.self,
-            bufferingPolicy: .bufferingOldest(2_048)
-        )
-        self.stream = stream
-        self.continuation = continuation
+    private struct State {
+        var chunks: [Data] = []
+        var bufferedBytes = 0
+        var waiter: CheckedContinuation<Data?, Never>?
+        var isFinished = false
     }
 
-    deinit {
-        continuation.finish()
+    private let maximumBufferedBytes: Int
+    private let lock = NSLock()
+    private var state = State()
+
+    init(maximumBufferedBytes: Int = AudioChunkSource.defaultMaximumBufferedBytes) {
+        self.maximumBufferedBytes = max(1, maximumBufferedBytes)
     }
 
     func send(_ data: Data) -> Bool {
-        switch continuation.yield(data) {
-        case .enqueued(_):
-            return true
-        case .dropped(_), .terminated:
-            return false
-        @unknown default:
-            return false
+        if data.isEmpty {
+            return lock.withLock { !state.isFinished }
+        }
+
+        let result: (accepted: Bool, waiter: CheckedContinuation<Data?, Never>?) = lock.withLock {
+            guard !state.isFinished else { return (false, nil) }
+            if let waiter = state.waiter {
+                state.waiter = nil
+                return (true, waiter)
+            }
+            guard state.bufferedBytes + data.count <= maximumBufferedBytes else { return (false, nil) }
+            state.chunks.append(data)
+            state.bufferedBytes += data.count
+            return (true, nil)
+        }
+
+        if let waiter = result.waiter {
+            waiter.resume(returning: data)
+        }
+        return result.accepted
+    }
+
+    func next() async -> Data? {
+        await withCheckedContinuation { continuation in
+            let immediate: Data?? = lock.withLock {
+                if !state.chunks.isEmpty {
+                    let chunk = state.chunks.removeFirst()
+                    state.bufferedBytes -= chunk.count
+                    return .some(chunk)
+                }
+                if state.isFinished {
+                    return .some(nil)
+                }
+                precondition(state.waiter == nil, "AudioChunkSource supports one consumer")
+                state.waiter = continuation
+                return nil
+            }
+            if let immediate {
+                continuation.resume(returning: immediate)
+            }
         }
     }
 
     func finish() {
-        continuation.finish()
+        let waiter: CheckedContinuation<Data?, Never>? = lock.withLock {
+            guard !state.isFinished else { return nil }
+            state.isFinished = true
+            let waiter = state.waiter
+            state.waiter = nil
+            return waiter
+        }
+        waiter?.resume(returning: nil)
     }
 }
 
@@ -44,17 +86,6 @@ private final class StreamingMetrics: @unchecked Sendable {
     private var sentBytes = 0
     private var droppedChunks = 0
     private var droppedBytes = 0
-
-    func reset() {
-        lock.lock()
-        receivedChunks = 0
-        receivedBytes = 0
-        sentChunks = 0
-        sentBytes = 0
-        droppedChunks = 0
-        droppedBytes = 0
-        lock.unlock()
-    }
 
     func recordReceived(_ byteCount: Int) {
         lock.lock()
@@ -94,10 +125,6 @@ private final class StreamingMetrics: @unchecked Sendable {
 private final class StreamingFailureState: @unchecked Sendable {
     private let lock = NSLock()
     private var failure: StreamingTranscriptionError?
-
-    func reset() {
-        lock.withLock { failure = nil }
-    }
 
     func record(_ error: StreamingTranscriptionError) {
         lock.withLock {
@@ -201,8 +228,6 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
         let start = Date()
         state = .connecting
         committedSegments = []
-        metrics.reset()
-        failureState.reset()
         firstPartialLogged = false
         firstCommitLogged = false
 
@@ -385,7 +410,7 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
         let logger = logger
 
         sendTask = Task.detached {
-            for await chunk in source.stream {
+            while let chunk = await source.next() {
                 do {
                     try await provider?.sendAudioChunk(chunk)
                     metrics.recordSent(chunk.count)

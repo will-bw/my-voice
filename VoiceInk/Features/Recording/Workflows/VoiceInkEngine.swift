@@ -158,7 +158,18 @@ class VoiceInkEngine: NSObject, ObservableObject {
         super.init()
 
         setupNotifications()
+        removeStaleTemporaryRecordingsIfNeeded()
         createRecordingsDirectoryIfNeeded()
+    }
+
+    private func removeStaleTemporaryRecordingsIfNeeded() {
+        guard !AudioHistorySettings.isEnabled else { return }
+        let result = AudioHistorySettings.removeStaleTemporaryRecordings()
+        if result.removedCount > 0 || result.errorCount > 0 {
+            logger.notice(
+                "Temporary recording recovery removed=\(result.removedCount, privacy: .public) failed=\(result.errorCount, privacy: .public)"
+            )
+        }
     }
 
     private func createRecordingsDirectoryIfNeeded() {

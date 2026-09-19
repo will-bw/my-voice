@@ -71,6 +71,7 @@ class TranscriptionPipeline {
         var responseError: String?
         var outputForDelivery: OutputRuntimeConfiguration?
         var responseConfig: EnhancementRuntimeConfiguration?
+        var recognizedTextForSignals: String?
         var actualRoute: TranscriptionRoute = .selectedModel
         var actualProvider = model.provider
         var diagnosticErrorClassification = "none"
@@ -148,6 +149,7 @@ class TranscriptionPipeline {
             }
 
             text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            recognizedTextForSignals = text
 
             if !assistant.isFollowUp,
                 let processedText = triggerWordModeSelection(text)
@@ -292,6 +294,11 @@ class TranscriptionPipeline {
 
             if transcription.transcriptionStatus == TranscriptionStatus.completed.rawValue {
                 do {
+                    try AdaptiveTermUsageRecorder.recordSuccessfulUse(
+                        hints: recognitionHints,
+                        transcript: recognizedTextForSignals ?? transcription.text,
+                        in: modelContext
+                    )
                     didInsertSessionMetric = try SessionMetricRecorder.recordRecorderSession(
                         transcription: transcription,
                         model: model,

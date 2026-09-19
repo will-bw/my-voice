@@ -35,16 +35,16 @@ final class SessionDiagnosticMetric {
         self.transcriptionId = transcriptionId
         self.timestamp = timestamp
         self.succeeded = succeeded
-        self.actualProvider = Self.allowedProvider(actualProvider)
-        self.fallbackPath = Self.allowedRoute(fallbackPath)
-        self.audioDuration = max(0, audioDuration)
+        self.actualProvider = Self.sanitizedProvider(actualProvider)
+        self.fallbackPath = Self.sanitizedRoute(fallbackPath)
+        self.audioDuration = Self.sanitizedDuration(audioDuration) ?? 0
         self.hotwordCount = max(0, hotwordCount)
-        let allowedContexts = Self.allowedContextTypes(contextTypes)
+        let allowedContexts = Self.sanitizedContextTypes(contextTypes)
         self.contextTypes = allowedContexts.isEmpty ? "none" : allowedContexts.joined(separator: ",")
-        self.errorClassification = Self.allowedError(errorClassification)
-        self.transcriptionDuration = transcriptionDuration.flatMap { $0 >= 0 ? $0 : nil }
-        self.enhancementDuration = enhancementDuration.flatMap { $0 >= 0 ? $0 : nil }
-        self.totalDuration = max(0, totalDuration)
+        self.errorClassification = Self.sanitizedError(errorClassification)
+        self.transcriptionDuration = Self.sanitizedDuration(transcriptionDuration)
+        self.enhancementDuration = Self.sanitizedDuration(enhancementDuration)
+        self.totalDuration = Self.sanitizedDuration(totalDuration) ?? 0
     }
 
     private static let providers: Set<String> = Set(ModelProvider.allCases.map(\.rawValue)).union(["unknown"])
@@ -55,20 +55,25 @@ final class SessionDiagnosticMetric {
         "disconnected", "canceled", "invalid-response", "configuration", "no-speech", "local-model", "unknown",
     ]
 
-    private static func allowedProvider(_ value: String) -> String {
+    static func sanitizedProvider(_ value: String) -> String {
         providers.contains(value) ? value : "unknown"
     }
 
-    private static func allowedRoute(_ value: String) -> String {
+    static func sanitizedRoute(_ value: String) -> String {
         routes.contains(value) ? value : TranscriptionRoute.selectedModel.rawValue
     }
 
-    private static func allowedContextTypes(_ values: [String]) -> [String] {
+    static func sanitizedContextTypes(_ values: [String]) -> [String] {
         Array(Set(values.filter(contexts.contains))).sorted()
     }
 
-    private static func allowedError(_ value: String) -> String {
+    static func sanitizedError(_ value: String) -> String {
         errors.contains(value) ? value : "unknown"
+    }
+
+    static func sanitizedDuration(_ value: TimeInterval?) -> TimeInterval? {
+        guard let value, value.isFinite, value >= 0 else { return nil }
+        return value
     }
 }
 

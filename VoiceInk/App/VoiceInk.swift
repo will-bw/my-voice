@@ -7,8 +7,11 @@ import SwiftUI
 
 @main
 struct VoiceInkApp: App {
+    private static let lifecycleLogger = Logger(subsystem: "com.will.myvoice", category: "Lifecycle")
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     let container: ModelContainer
+    private let launchStartedAt = Date()
 
     @StateObject private var engine: VoiceInkEngine
     // Retain managers without subscribing the entire scene to download progress.
@@ -209,6 +212,11 @@ struct VoiceInkApp: App {
                 modelContainer: resolvedContainer)
             await tokenBackfillTask?.value
         }
+
+        let launchElapsed = Date().timeIntervalSince(launchStartedAt)
+        Self.lifecycleLogger.notice(
+            "App recording services ready elapsed=\(launchElapsed, format: .fixed(precision: 3), privacy: .public)s"
+        )
     }
 
     // MARK: - Container Creation Helpers

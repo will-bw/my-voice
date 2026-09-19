@@ -51,6 +51,29 @@ private final class MockTranscriptionService: TranscriptionService {
 
 @MainActor
 final class TranscriptionSessionTests: XCTestCase {
+    func testAudioChunkSourceEnforcesByteBudgetAndDrainsBeforeFinish() async {
+        XCTAssertEqual(AudioChunkSource.defaultMaximumBufferedBytes, 64_000)
+        let source = AudioChunkSource(maximumBufferedBytes: 4)
+        let first = Data([1, 2])
+        let second = Data([3, 4])
+
+        XCTAssertTrue(source.send(first))
+        XCTAssertTrue(source.send(second))
+        XCTAssertFalse(source.send(Data([5])))
+        let drainedFirst = await source.next()
+        XCTAssertEqual(drainedFirst, first)
+        XCTAssertTrue(source.send(Data([5])))
+
+        source.finish()
+        let drainedSecond = await source.next()
+        let drainedThird = await source.next()
+        let finished = await source.next()
+        XCTAssertEqual(drainedSecond, second)
+        XCTAssertEqual(drainedThird, Data([5]))
+        XCTAssertNil(finished)
+        XCTAssertFalse(source.send(Data([6])))
+    }
+
     private let streamingModel = CloudModel(
         name: "streaming-model",
         displayName: "Streaming Model",

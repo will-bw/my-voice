@@ -90,6 +90,13 @@ struct GeneralBackup: Codable {
     let audioRetentionPeriod: Int?
     let isAudioHistoryEnabled: Bool?
     let audioHistoryMaximumBytes: Int64?
+    let hotwordExperimentArm: String?
+    let useAppRecognitionSignal: Bool?
+    let useURLRecognitionSignal: Bool?
+    let useModeRecognitionSignal: Bool?
+    let recognitionContextDenyListsEnabled: Bool?
+    let deniedRecognitionContextApps: [String]?
+    let deniedRecognitionContextHosts: [String]?
 
     let isSystemMuteEnabled: Bool?
     let isPauseMediaEnabled: Bool?

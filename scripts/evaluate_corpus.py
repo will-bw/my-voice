@@ -70,7 +70,9 @@ def percentile(values: list[float], percent: float) -> float | None:
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
-def validate_manifest(rows: list[dict]) -> dict[str, dict]:
+def validate_manifest(
+    rows: list[dict], audio_base_directory: Path | None = None
+) -> dict[str, dict]:
     if len(rows) < 100:
         raise ValueError(f"manifest needs at least 100 items; found {len(rows)}")
     by_id: dict[str, dict] = {}
@@ -86,6 +88,12 @@ def validate_manifest(rows: list[dict]) -> dict[str, dict]:
             raise ValueError(f"manifest row {index}: duplicate id {sample_id!r}")
         if not isinstance(audio_path, str) or not audio_path:
             raise ValueError(f"manifest row {index}: audio_path must be a non-empty string")
+        if audio_base_directory is not None:
+            resolved_audio = Path(audio_path).expanduser()
+            if not resolved_audio.is_absolute():
+                resolved_audio = audio_base_directory / resolved_audio
+            if not resolved_audio.is_file():
+                raise ValueError(f"manifest row {index}: audio file does not exist: {audio_path!r}")
         if not isinstance(reference, str) or not reference:
             raise ValueError(f"manifest row {index}: reference_text must be non-empty")
         if not isinstance(entities, list):
@@ -124,8 +132,27 @@ def validate_results(rows: list[dict], manifest: dict[str, dict]) -> None:
         seen.add(result_key)
         if not isinstance(row["success"], bool):
             raise ValueError(f"results row {index}: success must be boolean")
-        if row["success"] and not isinstance(row.get("hypothesis"), str):
-            raise ValueError(f"results row {index}: successful result needs hypothesis")
+        if not isinstance(row["latency_ms"], (int, float)) or row["latency_ms"] < 0:
+            raise ValueError(f"results row {index}: latency_ms must be a non-negative number")
+        if row["success"] and (
+            not isinstance(row.get("hypothesis"), str) or not row["hypothesis"].strip()
+        ):
+            raise ValueError(f"results row {index}: successful result needs a non-empty hypothesis")
+        if "final_text" in row and not isinstance(row["final_text"], str):
+            raise ValueError(f"results row {index}: final_text must be a string")
+        if "predicted_entities" in row and (
+            not isinstance(row["predicted_entities"], list)
+            or not all(isinstance(value, str) for value in row["predicted_entities"])
+        ):
+            raise ValueError(f"results row {index}: predicted_entities must be a list of strings")
+        for field in (
+            "cpu_seconds", "peak_rss_mb", "energy_impact", "network_bytes",
+            "hotword_count", "false_hotword_attractions",
+        ):
+            if field in row and (
+                not isinstance(row[field], (int, float)) or isinstance(row[field], bool) or row[field] < 0
+            ):
+                raise ValueError(f"results row {index}: {field} must be a non-negative number")
 
 
 def groups_have_complete_coverage(
@@ -133,6 +160,18 @@ def groups_have_complete_coverage(
 ) -> bool:
     manifest_ids = set(manifest)
     return bool(groups) and all({row["id"] for row in rows} == manifest_ids for rows in groups.values())
+
+
+def parameter_freeze_allowed(
+    groups: dict[tuple[str, str], list[dict]], manifest: dict[str, dict]
+) -> bool:
+    required_hotword_arms = {"none", "all", "dynamic"}
+    providers = {provider for _, provider in groups}
+    has_comparable_provider = any(
+        all((arm, provider) in groups for arm in required_hotword_arms)
+        for provider in providers
+    )
+    return has_comparable_provider and groups_have_complete_coverage(groups, manifest)
 
 
 def summarize_group(rows: list[dict], manifest: dict[str, dict]) -> dict:
@@ -189,7 +228,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         manifest_rows = read_jsonl(args.manifest)
-        manifest = validate_manifest(manifest_rows)
+        manifest = validate_manifest(manifest_rows, audio_base_directory=args.manifest.parent)
         result_rows = read_jsonl(args.results)
         validate_results(result_rows, manifest)
         groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -204,7 +243,7 @@ def main() -> int:
                 f"{arm}::{provider}": summarize_group(rows, manifest)
                 for (arm, provider), rows in sorted(groups.items())
             },
-            "parameter_freeze_allowed": groups_have_complete_coverage(groups, manifest),
+            "parameter_freeze_allowed": parameter_freeze_allowed(groups, manifest),
         }
         json.dump(report, sys.stdout, ensure_ascii=False, indent=2, sort_keys=True)
         sys.stdout.write("\n")

@@ -32,6 +32,37 @@ struct RecognitionHintSnapshot: Equatable, Sendable {
     let sourceTypes: [String]
     let privacyDecision: String
     let selectionTrace: RecognitionHintSelectionTrace
+    let localAppBundleIdentifier: String?
+    let localURLHost: String?
+    let localModeIdentifier: String?
+
+    init(
+        vocabulary: [String: Int],
+        languageHints: [String],
+        context: String?,
+        experimentArm: HotwordExperimentArm,
+        candidateCount: Int,
+        contextKind: String?,
+        sourceTypes: [String],
+        privacyDecision: String,
+        selectionTrace: RecognitionHintSelectionTrace,
+        localAppBundleIdentifier: String? = nil,
+        localURLHost: String? = nil,
+        localModeIdentifier: String? = nil
+    ) {
+        self.vocabulary = vocabulary
+        self.languageHints = languageHints
+        self.context = context
+        self.experimentArm = experimentArm
+        self.candidateCount = candidateCount
+        self.contextKind = contextKind
+        self.sourceTypes = sourceTypes
+        self.privacyDecision = privacyDecision
+        self.selectionTrace = selectionTrace
+        self.localAppBundleIdentifier = localAppBundleIdentifier
+        self.localURLHost = localURLHost
+        self.localModeIdentifier = localModeIdentifier
+    }
 
     /// Ephemeral UI audit text. It deliberately contains only source categories and counts.
     var userFacingAuditSummary: String {
@@ -66,7 +97,10 @@ struct RecognitionHintSnapshot: Equatable, Sendable {
             contextKind: nil,
             sourceTypes: [],
             privacyDecision: "allowed",
-            selectionTrace: RecognitionHintSelectionTrace(candidateCount: 0, selectedCount: 0, suppressedCount: 0)
+            selectionTrace: RecognitionHintSelectionTrace(candidateCount: 0, selectedCount: 0, suppressedCount: 0),
+            localAppBundleIdentifier: nil,
+            localURLHost: nil,
+            localModeIdentifier: nil
         )
     }
 
@@ -94,9 +128,37 @@ struct ContextPrivacyDecision: Equatable, Sendable {
     let reason: String?
 }
 
+enum RecognitionContextSignalSettings {
+    static let useAppSignalKey = "RecognitionContextUseAppSignal"
+    static let useURLSignalKey = "RecognitionContextUseURLSignal"
+    static let useModeSignalKey = "RecognitionContextUseModeSignal"
+
+    static func usesApp(defaults: UserDefaults = .standard) -> Bool {
+        enabled(useAppSignalKey, defaults: defaults)
+    }
+
+    static func usesURL(defaults: UserDefaults = .standard) -> Bool {
+        enabled(useURLSignalKey, defaults: defaults)
+    }
+
+    static func usesMode(defaults: UserDefaults = .standard) -> Bool {
+        enabled(useModeSignalKey, defaults: defaults)
+    }
+
+    private static func enabled(_ key: String, defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: key) == nil || defaults.bool(forKey: key)
+    }
+}
+
 enum ContextPrivacyPolicy {
+    static let denyListsEnabledDefaultsKey = "RecognitionContextDenyListsEnabled"
     static let deniedAppsDefaultsKey = "RecognitionContextDeniedApps"
     static let deniedHostsDefaultsKey = "RecognitionContextDeniedHosts"
+
+    static func areDenyListsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: denyListsEnabledDefaultsKey) == nil
+            || defaults.bool(forKey: denyListsEnabledDefaultsKey)
+    }
 
     static func decision(
         appBundleIdentifier: String?,
@@ -123,6 +185,10 @@ enum ContextPrivacyPolicy {
         }
         if focusedControlSecurity {
             return ContextPrivacyDecision(allowsContext: false, reason: "secure-control")
+        }
+
+        guard areDenyListsEnabled(defaults: defaults) else {
+            return ContextPrivacyDecision(allowsContext: true, reason: nil)
         }
 
         let deniedApps = Set(defaults.stringArray(forKey: deniedAppsDefaultsKey) ?? [])
@@ -512,10 +578,14 @@ enum RecognitionHintSnapshotBuilder {
             candidates.append(.init(term: trimmed, metadata: signals, isGlobalFallback: fallbackKeys.contains(key)))
         }
 
+        let localAppBundleIdentifier = RecognitionContextSignalSettings.usesApp() ? appBundleIdentifier : nil
+        let localURLHost = RecognitionContextSignalSettings.usesURL() ? urlHost : nil
+        let localModeIdentifier = RecognitionContextSignalSettings.usesMode()
+            ? mode.id.uuidString.lowercased() : nil
         let environment = RecognitionHintEnvironment(
-            appBundleIdentifier: appBundleIdentifier,
-            urlHost: urlHost,
-            modeIdentifier: mode.id.uuidString.lowercased(),
+            appBundleIdentifier: localAppBundleIdentifier,
+            urlHost: localURLHost,
+            modeIdentifier: localModeIdentifier,
             literalContext: literalContext
         )
         let vocabulary = HotwordSelector.select(
@@ -537,7 +607,10 @@ enum RecognitionHintSnapshotBuilder {
                 candidateCount: candidates.count,
                 selectedCount: vocabulary.count,
                 suppressedCount: max(0, candidates.count - vocabulary.count)
-            )
+            ),
+            localAppBundleIdentifier: localAppBundleIdentifier,
+            localURLHost: localURLHost,
+            localModeIdentifier: localModeIdentifier
         )
     }
 }

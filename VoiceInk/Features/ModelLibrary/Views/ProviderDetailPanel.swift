@@ -24,6 +24,10 @@ struct ProviderDetailPanel: View {
     @State private var bailianConfigurationMessage: String?
     @State private var bailianConfigurationIsValid = false
     @State private var hotwordExperimentArm: HotwordExperimentArm = .dynamic
+    @State private var useAppRecognitionSignal = true
+    @State private var useURLRecognitionSignal = true
+    @State private var useModeRecognitionSignal = true
+    @State private var contextDenyListsEnabled = true
     @State private var deniedContextApps = ""
     @State private var deniedContextHosts = ""
     @State private var recognitionPrivacyMessage: String?
@@ -89,6 +93,22 @@ struct ProviderDetailPanel: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Use current app as a local ranking signal", isOn: $useAppRecognitionSignal)
+                    Toggle("Use current URL host as a local ranking signal", isOn: $useURLRecognitionSignal)
+                    Toggle("Use active Mode as a local ranking signal", isOn: $useModeRecognitionSignal)
+                    Text("These switches only affect local hotword ranking. App, URL, and Mode identifiers are not uploaded.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Toggle("Apply custom app and URL deny lists", isOn: $contextDenyListsEnabled)
+                    Text("Turn this off to pause your custom rules. Secure controls and unknown security boundaries remain blocked.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Blocked app bundle IDs")
                         .font(.system(size: 12, weight: .semibold))
@@ -96,6 +116,7 @@ struct ProviderDetailPanel: View {
                         .font(.system(.caption, design: .monospaced))
                         .frame(minHeight: 54)
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppTheme.Border.control.opacity(0.7)))
+                        .disabled(!contextDenyListsEnabled)
                     Text("One bundle ID per line. Initially empty.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -108,6 +129,7 @@ struct ProviderDetailPanel: View {
                         .font(.system(.caption, design: .monospaced))
                         .frame(minHeight: 54)
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppTheme.Border.control.opacity(0.7)))
+                        .disabled(!contextDenyListsEnabled)
                     Text("One host per line; subdomains are also blocked. Initially empty.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -644,6 +666,10 @@ struct ProviderDetailPanel: View {
         bailianConfigurationMessage = nil
         bailianConfigurationIsValid = false
         hotwordExperimentArm = HotwordExperimentArm.current
+        useAppRecognitionSignal = RecognitionContextSignalSettings.usesApp()
+        useURLRecognitionSignal = RecognitionContextSignalSettings.usesURL()
+        useModeRecognitionSignal = RecognitionContextSignalSettings.usesMode()
+        contextDenyListsEnabled = ContextPrivacyPolicy.areDenyListsEnabled()
         deniedContextApps = (UserDefaults.standard.stringArray(
             forKey: ContextPrivacyPolicy.deniedAppsDefaultsKey) ?? []).joined(separator: "\n")
         deniedContextHosts = (UserDefaults.standard.stringArray(
@@ -653,6 +679,14 @@ struct ProviderDetailPanel: View {
 
     private func saveRecognitionHintSettings() {
         UserDefaults.standard.set(hotwordExperimentArm.rawValue, forKey: HotwordExperimentArm.defaultsKey)
+        UserDefaults.standard.set(
+            useAppRecognitionSignal, forKey: RecognitionContextSignalSettings.useAppSignalKey)
+        UserDefaults.standard.set(
+            useURLRecognitionSignal, forKey: RecognitionContextSignalSettings.useURLSignalKey)
+        UserDefaults.standard.set(
+            useModeRecognitionSignal, forKey: RecognitionContextSignalSettings.useModeSignalKey)
+        UserDefaults.standard.set(
+            contextDenyListsEnabled, forKey: ContextPrivacyPolicy.denyListsEnabledDefaultsKey)
         UserDefaults.standard.set(normalizedLines(deniedContextApps), forKey: ContextPrivacyPolicy.deniedAppsDefaultsKey)
         UserDefaults.standard.set(normalizedLines(deniedContextHosts), forKey: ContextPrivacyPolicy.deniedHostsDefaultsKey)
         recognitionPrivacyMessage = String(localized: "Hint and privacy settings saved.")

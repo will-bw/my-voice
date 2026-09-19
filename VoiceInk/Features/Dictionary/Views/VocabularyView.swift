@@ -3,6 +3,7 @@ import SwiftUI
 
 struct VocabularyView: View {
     @Query private var vocabularyWords: [VocabularyWord]
+    @Query private var adaptiveMetadata: [AdaptiveTermMetadata]
     @Environment(\.modelContext) private var modelContext
     @State private var newWord = ""
     @State private var showAlert = false
@@ -16,6 +17,13 @@ struct VocabularyView: View {
 
     private var sortedItems: [VocabularyWord] {
         DictionarySortService.shared.sortVocabulary(vocabularyWords, by: sortMode)
+    }
+
+    private var metadataByTerm: [String: AdaptiveTermMetadata] {
+        Dictionary(
+            adaptiveMetadata.map { ($0.normalizedTerm, $0) },
+            uniquingKeysWith: { lhs, _ in lhs }
+        )
     }
 
     private func toggleSort() {
@@ -38,6 +46,7 @@ struct VocabularyView: View {
     }
 
     var body: some View {
+        let currentMetadataByTerm = metadataByTerm
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 TextField("", text: $newWord, prompt: Text("Add word to vocabulary"))
@@ -85,9 +94,14 @@ struct VocabularyView: View {
 
                     FlowLayout(spacing: 8) {
                         ForEach(sortedItems) { item in
-                            VocabularyWordView(item: item) {
-                                removeWord(item)
-                            }
+                            VocabularyWordView(
+                                item: item,
+                                hotwordWeight: currentMetadataByTerm[
+                                    AdaptiveTermMetadata.normalize(item.word)
+                                ]?.userWeight,
+                                onSetHotwordWeight: { setHotwordWeight($0, for: item) },
+                                onDelete: { removeWord(item) }
+                            )
                         }
                     }
                     .padding(.vertical, 4)
@@ -120,6 +134,28 @@ struct VocabularyView: View {
     private func removeWord(_ word: VocabularyWord) {
         if let error = DictionaryService.removeVocabularyWord(word, context: modelContext) {
             alertMessage = error
+            showAlert = true
+        }
+    }
+
+    private func metadata(for word: VocabularyWord) -> AdaptiveTermMetadata? {
+        let key = AdaptiveTermMetadata.normalize(word.word)
+        return adaptiveMetadata.first { $0.normalizedTerm == key }
+    }
+
+    private func setHotwordWeight(_ weight: Int?, for word: VocabularyWord) {
+        let itemMetadata: AdaptiveTermMetadata
+        if let existing = metadata(for: word) {
+            itemMetadata = existing
+        } else {
+            itemMetadata = AdaptiveTermMetadata(term: word.word)
+            modelContext.insert(itemMetadata)
+        }
+        itemMetadata.setUserWeight(weight)
+        do {
+            try modelContext.save()
+        } catch {
+            alertMessage = String(localized: "Could not save the hotword weight.")
             showAlert = true
         }
     }
@@ -163,6 +199,8 @@ struct VocabularyInfoPopover: View {
 
 struct VocabularyWordView: View {
     let item: VocabularyWord
+    let hotwordWeight: Int?
+    let onSetHotwordWeight: (Int?) -> Void
     let onDelete: () -> Void
     @State private var isDeleteHovered = false
 
@@ -172,6 +210,23 @@ struct VocabularyWordView: View {
                 .font(.system(size: 13))
                 .lineLimit(1)
                 .foregroundColor(.primary)
+
+            Menu {
+                Button("Automatic (4 or 5)") { onSetHotwordWeight(nil) }
+                Divider()
+                ForEach(1...5, id: \.self) { weight in
+                    Button("Weight \(weight)") { onSetHotwordWeight(weight) }
+                }
+                Divider()
+                Button("Weight 50 — explicit super hotword") { onSetHotwordWeight(50) }
+            } label: {
+                Text(hotwordWeight.map { String($0) } ?? "Auto")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(hotwordWeight == 50 ? AppTheme.Status.warning : .secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Bailian hotword weight")
 
             Button(action: onDelete) {
                 Image(systemName: "xmark.circle.fill")

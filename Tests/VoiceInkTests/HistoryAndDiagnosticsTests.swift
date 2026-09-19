@@ -11,6 +11,26 @@ final class HistoryAndDiagnosticsTests: XCTestCase {
         XCTAssertFalse(AudioHistorySettings.isEnabled(defaults: defaults))
         XCTAssertEqual(AudioHistorySettings.defaultRetentionDays, 7)
         XCTAssertEqual(AudioHistorySettings.defaultMaximumBytes, 1_073_741_824)
+        XCTAssertTrue(AudioHistorySettings.temporaryRecordingsDirectory.path.contains("SessionRecordings"))
+        XCTAssertNotEqual(
+            AudioHistorySettings.temporaryRecordingsDirectory,
+            AudioHistorySettings.defaultRecordingsDirectory
+        )
+    }
+
+    func testCrashRecoveryRemovesStaleTemporaryRecordings() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HistoryAndDiagnosticsTests.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data([1]).write(to: directory.appendingPathComponent("one.wav"))
+        try Data([2]).write(to: directory.appendingPathComponent("two.wav"))
+
+        let result = AudioHistorySettings.removeStaleTemporaryRecordings(directory: directory)
+
+        XCTAssertEqual(result.removedCount, 2)
+        XCTAssertEqual(result.errorCount, 0)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [])
     }
 
     func testCleanupUsesAgeOrCapacityAndDeletesOldestFirst() {
@@ -71,5 +91,57 @@ final class HistoryAndDiagnosticsTests: XCTestCase {
         XCTAssertEqual(metric.contextTypes, "clipboard,selected-text")
         XCTAssertEqual(metric.errorClassification, "unknown")
         XCTAssertEqual(metric.hotwordCount, 4)
+    }
+
+    @MainActor
+    func testRedactedDiagnosticExportContainsOnlyWhitelistedSessionFields() throws {
+        let metric = SessionDiagnosticMetric(
+            transcriptionId: UUID(),
+            timestamp: Date(timeIntervalSince1970: 2_000_000),
+            succeeded: false,
+            actualProvider: "provider-secret-value",
+            fallbackPath: "private-route",
+            audioDuration: 1.5,
+            hotwordCount: 2,
+            contextTypes: ["clipboard", "raw secret context"],
+            errorClassification: "Bearer secret-token",
+            transcriptionDuration: 0.7,
+            enhancementDuration: nil,
+            totalDuration: 1.0
+        )
+        // SwiftData properties remain mutable after initialization, so the exporter must
+        // enforce the allowlist again instead of trusting stored values blindly.
+        metric.actualProvider = "mutated-provider-secret"
+        metric.fallbackPath = "mutated-route-secret"
+        metric.contextTypes = "clipboard,mutated-context-secret"
+        metric.errorClassification = "mutated-error-secret"
+        metric.audioDuration = .infinity
+        metric.hotwordCount = -2
+        metric.transcriptionDuration = .nan
+        metric.totalDuration = -4
+        let package = RedactedDiagnosticExporter.makePackage(
+            metrics: [metric],
+            generatedAt: Date(timeIntervalSince1970: 3_000_000),
+            appVersion: "test",
+            buildVersion: "test",
+            operatingSystem: "test",
+            architecture: "test",
+            recordingHistoryEnabled: false
+        )
+        let data = try JSONEncoder().encode(package)
+        let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+
+        XCTAssertEqual(package.sessions.count, 1)
+        XCTAssertEqual(package.sessions[0].actualProvider, "unknown")
+        XCTAssertEqual(package.sessions[0].contextTypes, "clipboard")
+        XCTAssertEqual(package.sessions[0].errorClassification, "unknown")
+        XCTAssertFalse(text.contains("provider-secret-value"))
+        XCTAssertFalse(text.contains("raw secret context"))
+        XCTAssertFalse(text.contains("secret-token"))
+        XCTAssertFalse(text.contains("mutated-"))
+        XCTAssertEqual(package.sessions[0].audioDuration, 0)
+        XCTAssertEqual(package.sessions[0].hotwordCount, 0)
+        XCTAssertNil(package.sessions[0].transcriptionDuration)
+        XCTAssertEqual(package.sessions[0].totalDuration, 0)
     }
 }

@@ -117,7 +117,7 @@ actor BailianStreamingSession {
 
     func sendAudio(_ data: Data) async throws {
         guard state == .streaming else {
-            throw BailianError.protocolViolation("收到 task-started 前不能发送音频")
+            throw await fail(BailianError.protocolViolation("收到 task-started 前不能发送音频"))
         }
         do {
             try await transport.send(.data(data))
