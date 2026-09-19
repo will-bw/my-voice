@@ -31,7 +31,11 @@ final class BailianBatchClientTests: XCTestCase {
             statusCode: 200,
             json: #"{"output":{"output":{"sentence":{"text":"识别结果"}},"text":"识别结果"},"request_id":"req-1"}"#
         )
-        let client = BailianBatchClient(configuration: try configuration(), transport: transport)
+        let client = BailianBatchClient(
+            configuration: try configuration(),
+            transport: transport,
+            healthStore: BailianProviderHealthStore()
+        )
         let hints = try BailianRecognitionHints(
             vocabulary: ["百炼": 4],
             languageHints: ["zh", "en"],
@@ -73,7 +77,11 @@ final class BailianBatchClientTests: XCTestCase {
         ]
         for (status, expected) in cases {
             let transport = MockHTTPTransport(statusCode: status, json: "{}")
-            let client = BailianBatchClient(configuration: try configuration(), transport: transport)
+            let client = BailianBatchClient(
+                configuration: try configuration(),
+                transport: transport,
+                healthStore: BailianProviderHealthStore()
+            )
             do {
                 _ = try await client.transcribe(
                     audioData: Data([0]),
@@ -91,7 +99,11 @@ final class BailianBatchClientTests: XCTestCase {
 
     func testEmptyFinalIsRejected() async throws {
         let transport = MockHTTPTransport(statusCode: 200, json: #"{"output":{"text":"   "}}"#)
-        let client = BailianBatchClient(configuration: try configuration(), transport: transport)
+        let client = BailianBatchClient(
+            configuration: try configuration(),
+            transport: transport,
+            healthStore: BailianProviderHealthStore()
+        )
         do {
             _ = try await client.transcribe(
                 audioData: Data([0]),

@@ -53,7 +53,7 @@ actor BailianBatchClient {
     init(
         configuration: BailianConfiguration,
         transport: any BailianHTTPTransport = BailianURLSessionHTTPTransport(),
-        healthStore: BailianProviderHealthStore = BailianProviderHealthStore()
+        healthStore: BailianProviderHealthStore = .shared
     ) {
         self.configuration = configuration
         self.transport = transport
@@ -71,6 +71,7 @@ actor BailianBatchClient {
             throw BailianError.missingAPIKey
         }
         do {
+            try await healthStore.ensureAttemptAllowed()
             let request = try makeRequest(
                 audioData: audioData,
                 fileName: fileName,

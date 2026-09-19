@@ -72,7 +72,7 @@ actor BailianStreamingSession {
     init(
         configuration: BailianConfiguration,
         transport: any BailianWebSocketTransport,
-        healthStore: BailianProviderHealthStore = BailianProviderHealthStore()
+        healthStore: BailianProviderHealthStore = .shared
     ) {
         self.configuration = configuration
         self.transport = transport
@@ -101,6 +101,7 @@ actor BailianStreamingSession {
         request.setValue("my-voice/1", forHTTPHeaderField: "User-Agent")
 
         do {
+            try await healthStore.ensureAttemptAllowed()
             try await transport.connect(request: request)
             try await transport.send(.text(try makeRunTaskJSON(hints: hints)))
             receiveTask = Task { [weak self] in

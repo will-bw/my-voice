@@ -79,6 +79,8 @@ class CloudTranscriptionService: TranscriptionService {
             )
         } catch let error as CloudTranscriptionError {
             throw error
+        } catch let error as BailianError {
+            throw mapBailianError(error)
         } catch let error as LLMKitError {
             throw mapLLMKitError(error)
         } catch {
@@ -142,6 +144,25 @@ class CloudTranscriptionService: TranscriptionService {
             return .networkError(error)
         case .unsupportedModel(let model):
             return .unsupportedModel(model)
+        }
+    }
+
+    private func mapBailianError(_ error: BailianError) -> CloudTranscriptionError {
+        switch error {
+        case .missingAPIKey:
+            return .missingAPIKey
+        case .invalidCredential:
+            return .invalidAPIKey
+        case .emptyFinal:
+            return .noTranscriptionReturned
+        case .misconfigured, .protocolViolation, .invalidResponse:
+            return .apiRequestFailed(statusCode: 400, message: error.localizedDescription)
+        case .rateLimited:
+            return .apiRequestFailed(statusCode: 429, message: error.localizedDescription)
+        case .server(let statusCode):
+            return .apiRequestFailed(statusCode: statusCode, message: error.localizedDescription)
+        case .timeout, .network, .disconnected, .canceled:
+            return .networkError(error)
         }
     }
 }

@@ -44,8 +44,10 @@ enum BailianProviderHealth: Equatable, Sendable {
         switch error {
         case .invalidCredential, .missingAPIKey:
             return .invalidCredential
-        case .misconfigured, .protocolViolation, .invalidResponse, .emptyFinal:
+        case .misconfigured, .protocolViolation, .invalidResponse:
             return .misconfigured
+        case .emptyFinal:
+            return .healthy
         case .rateLimited, .server, .timeout, .network, .disconnected, .canceled:
             return .transientFailure
         }
@@ -53,6 +55,8 @@ enum BailianProviderHealth: Equatable, Sendable {
 }
 
 actor BailianProviderHealthStore {
+    static let shared = BailianProviderHealthStore()
+
     private(set) var health: BailianProviderHealth = .unknown
 
     func markHealthy() {
@@ -65,6 +69,17 @@ actor BailianProviderHealthStore {
 
     func reset() {
         health = .unknown
+    }
+
+    func ensureAttemptAllowed() throws {
+        switch health {
+        case .invalidCredential:
+            throw BailianError.invalidCredential(statusCode: 401)
+        case .misconfigured:
+            throw BailianError.misconfigured("请先更新百炼配置")
+        case .unknown, .healthy, .transientFailure:
+            return
+        }
     }
 }
 

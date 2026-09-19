@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
-- 当前检查点：B1（百炼 Provider 基础设施）；A 已验收
-- 状态：B1 协议核心、Provider 注册、Keychain/地域/Workspace 配置和 Mock XCTest 已实现；等待真实百炼凭证端到端验收
+- 当前检查点：B2（Streaming 主链路的非凭证实现）；A 已验收，B1 真实百炼验收待凭证
+- 状态：B1 基础设施已提交；B2 已接通 Mock Streaming → Batch → SenseVoice 回退、取消/无语音门控、背压保护和实际来源记录，等待真实百炼凭证与跨应用验收
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -64,6 +64,8 @@
 | SenseVoice 真人中文听写 | 通过：历史状态 `completed`，实际 Provider/模型为 SenseVoice Small，输出“今天下午3点提交项目报告。” |
 | SenseVoice 实测耗时 | 两次样本音频 5.068 s / 3.729 s；转写耗时 1.573 s / 0.044 s（第二次受已加载模型缓存影响） |
 | TextEdit 跨应用投递 | 通过：截图可见完整中文结果，焦点与粘贴投递正确 |
+| `xcodebuild test … -only-testing:VoiceInkTests`（B1/B2） | 通过：21 个 XCTest；覆盖百炼协议、错误矩阵、三级回退和取消/无语音门控 |
+| B2 增量 Release 构建 | 通过：Apple Development 稳定签名；仅有上游既有警告 |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。
 
@@ -82,6 +84,17 @@
 - Mock 测试覆盖正常流程、乱序、重复、空 final、`task-failed`、断线、超时、401/403/429/5xx 与取消竞争；14 个测试通过。
 - B1 代码已通过 Apple Development 稳定签名的 Release 构建与深度签名验证。
 - 下一步：用户在应用内提供同地域的 Workspace ID 与普通按量 API Key 后，执行少量 Batch/Streaming 真人音频端到端验收；真实 Key 不进入仓库或测试夹具。
+
+## B2 进展
+
+- Streaming 录音停止时会等待后台连接启动结束；连接、发送或队列背压失败后使用完整录音文件回退，不投递截断的流式结果。
+- 已实现百炼 `Streaming → Batch → SenseVoice Small` 分级回退；只有本机已安装 SenseVoice Small 时才启用本地第三级。
+- 用户取消、无有效语音和完整录音文件缺失不会错误触发 Batch 或本地回退。
+- HUD 继续只显示 partial；目标输入框仍只接收完整 final。累积 committed 事件会合并，不重复拼接到 HUD。
+- 每次完成结果保存实际识别路径和实际模型；Batch/本地回退会显示明确通知，History Info 可查看 Recognition Path。
+- Provider Health 在进程内共享；已知无效凭证或配置不会反复发起网络请求，配置或 API Key 改变时重置。
+- B1/B2 Mock XCTest 共 21 个，新增覆盖 Streaming 成功、Batch 回退、本地回退、取消禁止回退、无语音禁止回退和累积 committed 合并。
+- 待真实凭证：百炼 Streaming partial/final、Batch 固定音频、TextEdit/浏览器/代码编辑器 final 投递与真实回退验收。
 
 ## 已解除阻塞
 

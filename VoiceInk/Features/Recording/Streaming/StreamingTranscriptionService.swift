@@ -91,6 +91,25 @@ private final class StreamingMetrics: @unchecked Sendable {
     }
 }
 
+private final class StreamingFailureState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var failure: StreamingTranscriptionError?
+
+    func reset() {
+        lock.withLock { failure = nil }
+    }
+
+    func record(_ error: StreamingTranscriptionError) {
+        lock.withLock {
+            if failure == nil { failure = error }
+        }
+    }
+
+    func snapshot() -> StreamingTranscriptionError? {
+        lock.withLock { failure }
+    }
+}
+
 /// Lifecycle states for a streaming transcription session.
 enum StreamingState {
     case idle
@@ -107,14 +126,36 @@ enum StreamingStopResult {
     case requiresBatchFallback
 }
 
+@MainActor
+protocol StreamingTranscriptionServicing: AnyObject {
+    func startStreaming(model: any TranscriptionModel, context: TranscriptionRequestContext) async throws
+    nonisolated func sendAudioChunk(_ data: Data)
+    func stopAndFinalize() async throws -> StreamingStopResult
+    func cancel()
+}
+
 private enum StreamingFinalizationWait {
     case provider(AsyncStream<String>)
     case committedEvent(AsyncStream<Void>)
 }
 
+enum StreamingTranscriptMerge {
+    static func merge(existing: [String], incoming: String) -> [String] {
+        let trimmed = incoming.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return existing }
+
+        let accumulated = existing.joined(separator: " ")
+        if trimmed == accumulated { return existing }
+        if !accumulated.isEmpty, trimmed.hasPrefix(accumulated) {
+            return [trimmed]
+        }
+        return existing + [trimmed]
+    }
+}
+
 /// Manages a streaming transcription lifecycle: buffers audio chunks, sends them to the provider, and collects the final text.
 @MainActor
-class StreamingTranscriptionService {
+class StreamingTranscriptionService: StreamingTranscriptionServicing {
 
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "StreamingTranscriptionService")
     private var provider: StreamingTranscriptionProvider?
@@ -127,6 +168,7 @@ class StreamingTranscriptionService {
     private let fluidAudioService: FluidAudioTranscriptionService?
     private var onPartialTranscript: ((String) -> Void)?
     private let metrics = StreamingMetrics()
+    private let failureState = StreamingFailureState()
     private var stopStartedAt: Date?
     private var firstPartialLogged = false
     private var firstCommitLogged = false
@@ -160,6 +202,7 @@ class StreamingTranscriptionService {
         state = .connecting
         committedSegments = []
         metrics.reset()
+        failureState.reset()
         firstPartialLogged = false
         firstCommitLogged = false
 
@@ -194,6 +237,7 @@ class StreamingTranscriptionService {
         metrics.recordReceived(data.count)
         if !chunkSource.send(data) {
             metrics.recordDropped(data.count)
+            failureState.record(.audioBackpressureExceeded)
         }
     }
 
@@ -219,6 +263,13 @@ class StreamingTranscriptionService {
 
         // Finish the chunk source so the send loop drains remaining chunks and exits naturally.
         await drainRemainingChunks()
+
+        if let failure = failureState.snapshot() {
+            logger.warning("Streaming audio was incomplete; switching to full-file fallback")
+            state = .failed
+            await cleanupStreaming()
+            throw failure
+        }
 
         // Providers with a documented terminal acknowledgement expose an authoritative
         // full-transcript stream. All other providers retain the existing committed-event behavior.
@@ -329,6 +380,7 @@ class StreamingTranscriptionService {
         let source = chunkSource
         let provider = provider
         let metrics = metrics
+        let failureState = failureState
         let logger = logger
 
         sendTask = Task.detached {
@@ -339,6 +391,12 @@ class StreamingTranscriptionService {
                 } catch {
                     let desc = error.localizedDescription
                     logger.error("Failed to send audio chunk: \(desc, privacy: .public)")
+                    metrics.recordDropped(chunk.count)
+                    if let streamingError = error as? StreamingTranscriptionError {
+                        failureState.record(streamingError)
+                    } else {
+                        failureState.record(.connectionFailed(desc))
+                    }
                 }
             }
         }
@@ -376,7 +434,10 @@ class StreamingTranscriptionService {
                             )
                         }
                         if !trimmed.isEmpty {
-                            self.committedSegments.append(trimmed)
+                            self.committedSegments = StreamingTranscriptMerge.merge(
+                                existing: self.committedSegments,
+                                incoming: trimmed
+                            )
                         }
                         // Refresh the live preview so it keeps showing the full running transcript
                         // after a commit (instead of resetting to empty until the next partial).

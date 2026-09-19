@@ -101,8 +101,13 @@ class TranscriptionPipeline {
         do {
             let transcriptionStart = Date()
             var text: String
+            var route: TranscriptionRoute = .selectedModel
+            var actualModelName = model.displayName
             if let session {
-                text = try await session.transcribe(audioURL: audioURL)
+                let result = try await session.transcribe(audioURL: audioURL)
+                text = result.text
+                route = result.route
+                actualModelName = result.modelDisplayName
             } else {
                 text = try await serviceRegistry.transcribe(
                     audioURL: audioURL,
@@ -145,11 +150,24 @@ class TranscriptionPipeline {
 
             transcription.text = cleanedText
             transcription.duration = actualDuration
-            transcription.transcriptionModelName = model.displayName
+            transcription.transcriptionModelName = actualModelName
+            transcription.transcriptionSource = route.rawValue
             transcription.transcriptionDuration = transcriptionDuration
             transcription.modeName = modeMetadata.name
             transcription.modeEmoji = modeMetadata.emoji
             finalText = cleanedText
+
+            if route == .batchFallback || route == .localFallback {
+                NotificationManager.shared.showNotification(
+                    title: String(
+                        format: String(localized: "Transcription completed with %@ using %@"),
+                        route.displayName,
+                        actualModelName
+                    ),
+                    type: .warning,
+                    duration: 5.0
+                )
+            }
 
             if !assistant.isFollowUp {
                 let shouldRespondInRecorder =

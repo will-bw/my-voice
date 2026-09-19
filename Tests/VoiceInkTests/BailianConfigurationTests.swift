@@ -60,6 +60,22 @@ final class BailianConfigurationTests: XCTestCase {
         XCTAssertEqual(BailianProviderHealth.classify(BailianError.server(statusCode: 503)), .transientFailure)
         XCTAssertEqual(BailianProviderHealth.classify(BailianError.timeout), .transientFailure)
         XCTAssertEqual(BailianProviderHealth.classify(BailianError.misconfigured("bad endpoint")), .misconfigured)
+        XCTAssertEqual(BailianProviderHealth.classify(BailianError.emptyFinal), .healthy)
+    }
+
+    func testProviderHealthSuppressesKnownBadConfigurationUntilReset() async throws {
+        let store = BailianProviderHealthStore()
+        await store.record(BailianError.invalidCredential(statusCode: 401))
+
+        do {
+            try await store.ensureAttemptAllowed()
+            XCTFail("Expected known invalid credential to be suppressed")
+        } catch let error as BailianError {
+            XCTAssertEqual(error, .invalidCredential(statusCode: 401))
+        }
+
+        await store.reset()
+        try await store.ensureAttemptAllowed()
     }
 
     func testTaskFailureMappingDoesNotExposeServerMessage() {

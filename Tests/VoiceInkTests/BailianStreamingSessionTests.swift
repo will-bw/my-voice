@@ -58,7 +58,14 @@ final class BailianStreamingSessionTests: XCTestCase {
     private func makeSession() throws -> (BailianStreamingSession, MockWebSocketTransport) {
         let configuration = try BailianConfiguration(region: .chinaNorth2, workspaceID: "workspace")
         let transport = MockWebSocketTransport()
-        return (BailianStreamingSession(configuration: configuration, transport: transport), transport)
+        return (
+            BailianStreamingSession(
+                configuration: configuration,
+                transport: transport,
+                healthStore: BailianProviderHealthStore()
+            ),
+            transport
+        )
     }
 
     private func taskID(from transport: MockWebSocketTransport) async throws -> String {

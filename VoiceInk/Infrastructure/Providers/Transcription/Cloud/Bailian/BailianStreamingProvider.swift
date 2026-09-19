@@ -140,8 +140,14 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
         case .missingAPIKey: return StreamingTranscriptionError.missingAPIKey
         case .timeout: return StreamingTranscriptionError.timeout
         case .disconnected: return StreamingTranscriptionError.notConnected
+        case .emptyFinal: return StreamingTranscriptionError.noSpeech
+        case .canceled: return StreamingTranscriptionError.cancelled
+        case .invalidCredential: return StreamingTranscriptionError.invalidCredential
+        case .misconfigured(let detail), .protocolViolation(let detail), .invalidResponse(let detail):
+            return StreamingTranscriptionError.misconfigured(detail)
+        case .rateLimited: return StreamingTranscriptionError.rateLimited
+        case .server: return StreamingTranscriptionError.serviceUnavailable
         case .network(let detail): return StreamingTranscriptionError.connectionFailed(detail)
-        default: return StreamingTranscriptionError.serverError(error.localizedDescription)
         }
     }
 }

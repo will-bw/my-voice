@@ -22,6 +22,13 @@ enum StreamingTranscriptionError: LocalizedError {
     case serverError(String)
     case notConnected
     case audioConversionFailed
+    case audioBackpressureExceeded
+    case noSpeech
+    case cancelled
+    case invalidCredential
+    case misconfigured(String)
+    case rateLimited
+    case serviceUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -37,6 +44,20 @@ enum StreamingTranscriptionError: LocalizedError {
             return String(localized: "Not connected to streaming transcription service")
         case .audioConversionFailed:
             return String(localized: "Failed to convert audio chunk for streaming")
+        case .audioBackpressureExceeded:
+            return String(localized: "Streaming audio queue overflowed; the complete recording will be used for fallback")
+        case .noSpeech:
+            return String(localized: "No valid speech was detected")
+        case .cancelled:
+            return String(localized: "Streaming transcription was canceled")
+        case .invalidCredential:
+            return String(localized: "Streaming credentials are invalid")
+        case .misconfigured(let message):
+            return String(format: String(localized: "Streaming provider is misconfigured: %@"), message)
+        case .rateLimited:
+            return String(localized: "Streaming transcription is rate limited")
+        case .serviceUnavailable:
+            return String(localized: "Streaming transcription service is unavailable")
         }
     }
 }

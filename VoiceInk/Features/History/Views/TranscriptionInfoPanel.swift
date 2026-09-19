@@ -82,6 +82,16 @@ struct TranscriptionInfoPanel: View {
                 }
             }
 
+            if let source = transcription.transcriptionSource,
+                let route = TranscriptionRoute(rawValue: source)
+            {
+                metadataRow(
+                    icon: "arrow.triangle.branch",
+                    label: "Recognition Path",
+                    value: route.displayName
+                )
+            }
+
             if let aiModel = transcription.aiEnhancementModelName {
                 metadataRow(
                     icon: "sparkles",

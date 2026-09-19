@@ -46,6 +46,9 @@ final class APIKeyManager {
             logger.info(
                 "Saved API key for provider: \(provider, privacy: .public) with key: \(keyIdentifier, privacy: .public)"
             )
+            if localOnly {
+                Task { await BailianProviderHealthStore.shared.reset() }
+            }
         }
         return success
     }
@@ -63,6 +66,9 @@ final class APIKeyManager {
         let success = keychain.delete(forKey: keyIdentifier, syncable: !isDeviceOnlyProvider(provider))
         if success {
             logger.info("Deleted API key for provider: \(provider, privacy: .public)")
+            if isDeviceOnlyProvider(provider) {
+                Task { await BailianProviderHealthStore.shared.reset() }
+            }
         }
         return success
     }

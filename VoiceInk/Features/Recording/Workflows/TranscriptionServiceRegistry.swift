@@ -71,8 +71,13 @@ class TranscriptionServiceRegistry {
                 fluidAudioService: model.provider == .fluidAudio ? fluidAudioTranscriptionService : nil,
                 onPartialTranscript: onPartialTranscript
             )
-            let fallback = service(for: model.provider)
-            return StreamingTranscriptionSession(streamingService: streamingService, fallbackService: fallback)
+            let batchModel = batchFallbackModel(for: model)
+            return StreamingTranscriptionSession(
+                streamingService: streamingService,
+                batchFallbackService: service(for: batchModel.provider),
+                batchFallbackModel: batchModel,
+                localFallback: localFallback(for: model)
+            )
         } else {
             return FileTranscriptionSession(service: service(for: model.provider))
         }
@@ -86,5 +91,28 @@ class TranscriptionServiceRegistry {
     func cleanup() async {
         await fluidAudioTranscriptionService.cleanup()
         cachedTranscribeCppTranscriptionService?.cleanup()
+    }
+
+    private func batchFallbackModel(for model: any TranscriptionModel) -> any TranscriptionModel {
+        guard model.provider == .bailian,
+            let batchModel = CloudProviderRegistry.provider(for: .bailian)?.models.first(where: {
+                !$0.supportsStreaming
+            })
+        else {
+            return model
+        }
+        return batchModel
+    }
+
+    private func localFallback(for model: any TranscriptionModel) -> LocalTranscriptionFallback? {
+        guard model.provider == .bailian,
+            TranscribeCppModelManager.shared.isModelDownloaded(named: "sensevoice-small"),
+            let senseVoice = TranscriptionModelRegistry.models.first(where: {
+                $0.provider == .transcribeCpp && $0.name == "sensevoice-small"
+            })
+        else {
+            return nil
+        }
+        return LocalTranscriptionFallback(service: transcribeCppTranscriptionService, model: senseVoice)
     }
 }

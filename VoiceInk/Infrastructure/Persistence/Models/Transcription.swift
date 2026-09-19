@@ -19,6 +19,7 @@ final class Transcription {
     var duration: TimeInterval = 0
     var audioFileURL: String?
     var transcriptionModelName: String?
+    var transcriptionSource: String?
     var aiEnhancementModelName: String?
     var promptName: String?
     var transcriptionDuration: TimeInterval?
@@ -37,6 +38,7 @@ final class Transcription {
         enhancedText: String? = nil,
         audioFileURL: String? = nil,
         transcriptionModelName: String? = nil,
+        transcriptionSource: String? = nil,
         aiEnhancementModelName: String? = nil,
         promptName: String? = nil,
         transcriptionDuration: TimeInterval? = nil,
@@ -54,6 +56,7 @@ final class Transcription {
         self.duration = duration
         self.audioFileURL = audioFileURL
         self.transcriptionModelName = transcriptionModelName
+        self.transcriptionSource = transcriptionSource
         self.aiEnhancementModelName = aiEnhancementModelName
         self.promptName = promptName
         self.transcriptionDuration = transcriptionDuration

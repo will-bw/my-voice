@@ -139,5 +139,6 @@ final class BailianConfigurationStore {
         defaults.set(configuration.workspaceID, forKey: Key.workspaceID)
         defaults.set(configuration.customHTTPEndpoint?.absoluteString, forKey: Key.httpEndpoint)
         defaults.set(configuration.customWebSocketEndpoint?.absoluteString, forKey: Key.webSocketEndpoint)
+        Task { await BailianProviderHealthStore.shared.reset() }
     }
 }
