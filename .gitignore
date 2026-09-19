@@ -36,6 +36,10 @@ build/
 .review-build/
 .local-dependencies/
 dist/
+evaluation/private/
+evaluation/results/
+__pycache__/
+*.pyc
 
 # CocoaPods
 #

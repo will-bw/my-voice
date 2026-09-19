@@ -167,6 +167,15 @@ enum BackupImporter {
         if let audioRetention = general.audioRetentionPeriod {
             UserDefaults.standard.set(audioRetention, forKey: CleanupSettingsKeys.audioRetentionPeriod)
         }
+        if let audioHistoryEnabled = general.isAudioHistoryEnabled {
+            UserDefaults.standard.set(audioHistoryEnabled, forKey: CleanupSettingsKeys.isAudioHistoryEnabled)
+        }
+        if let audioHistoryMaximumBytes = general.audioHistoryMaximumBytes {
+            UserDefaults.standard.set(
+                audioHistoryMaximumBytes,
+                forKey: CleanupSettingsKeys.audioHistoryMaximumBytes
+            )
+        }
 
         if let muteSystem = general.isSystemMuteEnabled {
             mediaController.isSystemMuteEnabled = muteSystem

@@ -65,13 +65,35 @@ class TranscriptionPipeline {
         assistant: AssistantHooks = .inactive
     ) async {
         let model = transcriptionConfiguration.model
+        let pipelineStart = Date()
+        let recognitionHints = transcriptionConfiguration.requestContext.recognitionHints
         var finalText: String?
         var responseError: String?
         var outputForDelivery: OutputRuntimeConfiguration?
         var responseConfig: EnhancementRuntimeConfiguration?
+        var actualRoute: TranscriptionRoute = .selectedModel
+        var actualProvider = model.provider
+        var diagnosticErrorClassification = "none"
+
+        func recordDiagnosticMetric() {
+            do {
+                _ = try SessionMetricRecorder.recordDiagnosticSession(
+                    transcription: transcription,
+                    provider: actualProvider,
+                    route: actualRoute,
+                    hints: recognitionHints,
+                    errorClassification: diagnosticErrorClassification,
+                    totalDuration: Date().timeIntervalSince(pipelineStart),
+                    in: modelContext
+                )
+            } catch {
+                logger.error("Failed to record redacted diagnostic metric: \(error, privacy: .public)")
+            }
+        }
 
         func finishCanceledTranscription() async {
             await onCancel()
+            diagnosticErrorClassification = "canceled"
 
             let canceledDuration: TimeInterval?
             if transcription.duration > 0 {
@@ -85,6 +107,7 @@ class TranscriptionPipeline {
                 duration: canceledDuration,
                 modelName: transcription.transcriptionModelName ?? model.displayName
             )
+            recordDiagnosticMetric()
 
             do {
                 try modelContext.save()
@@ -108,6 +131,7 @@ class TranscriptionPipeline {
                 text = result.text
                 route = result.route
                 actualModelName = result.modelDisplayName
+                actualProvider = result.provider
             } else {
                 text = try await serviceRegistry.transcribe(
                     audioURL: audioURL,
@@ -152,6 +176,7 @@ class TranscriptionPipeline {
             transcription.duration = actualDuration
             transcription.transcriptionModelName = actualModelName
             transcription.transcriptionSource = route.rawValue
+            actualRoute = route
             transcription.transcriptionDuration = transcriptionDuration
             transcription.modeName = modeMetadata.name
             transcription.modeEmoji = modeMetadata.emoji
@@ -242,6 +267,7 @@ class TranscriptionPipeline {
 
             transcription.transcriptionStatus = TranscriptionStatus.completed.rawValue
         } catch {
+            diagnosticErrorClassification = TranscriptionDiagnosticErrorClassifier.classify(error)
             let errorDescription = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
 
             if let nativeAppleError = error as? NativeAppleTranscriptionService.ServiceError,
@@ -262,6 +288,7 @@ class TranscriptionPipeline {
 
         func saveTranscriptionAndPostCompletion() {
             var didInsertSessionMetric = false
+            recordDiagnosticMetric()
 
             if transcription.transcriptionStatus == TranscriptionStatus.completed.rawValue {
                 do {

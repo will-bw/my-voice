@@ -1,14 +1,16 @@
 # my-voice
 
-面向 macOS 的个人语音输入工具。项目以固定的 VoiceInk 源码快照为底座，计划接入阿里云百炼 Streaming/Batch ASR，并围绕动态热词、最小上下文、分级回退和安全纠错学习进行定制。
+面向 macOS 的个人语音输入工具。项目以固定的 VoiceInk 源码快照为底座，接入阿里云百炼 Streaming/Batch ASR，并围绕动态热词、最小上下文、分级回退、安全纠错学习和隐私可控的历史记录进行定制。
 
-当前处于检查点 A（上游基线）：VoiceInk `cd1d96f182b03561f5ef66c6a91e511cd7409c4c` 已导入；百炼 Provider 尚未开始实现。实际进度和验证边界以 [docs/PROGRESS.md](docs/PROGRESS.md) 为准。
+检查点 A、B1、B2、B3、C、D 的非凭证实现已经完成。真实百炼 Streaming/Batch、100 条个人语料 A/B 和跨浏览器/代码编辑器验收仍需要用户 API Key 与个人录音；实际进度和验证边界以 [docs/PROGRESS.md](docs/PROGRESS.md) 为准。
 
 ## 文档
 
 - [产品需求 v0.2](docs/REQUIREMENTS.md)
 - [开发设计 v0.1](docs/DEVELOPMENT.md)
 - [开发进度](docs/PROGRESS.md)
+- [安全纠错学习](docs/C_SAFE_LEARNING.md)
+- [历史、脱敏指标与评测](docs/D_HISTORY_METRICS_EVALUATION.md)
 - [上游来源与本地差异](UPSTREAM.md)
 - [本地构建说明](BUILDING.md)
 

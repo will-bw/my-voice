@@ -7,6 +7,43 @@ enum SessionMetricRecorder {
     private static let source = "recorder"
 
     @discardableResult
+    static func recordDiagnosticSession(
+        transcription: Transcription,
+        provider: ModelProvider,
+        route: TranscriptionRoute,
+        hints: RecognitionHintSnapshot?,
+        errorClassification: String,
+        totalDuration: TimeInterval,
+        in modelContext: ModelContext,
+        timestamp: Date = Date()
+    ) throws -> Bool {
+        let transcriptionId = transcription.id
+        let descriptor = FetchDescriptor<SessionDiagnosticMetric>(
+            predicate: #Predicate<SessionDiagnosticMetric> { metric in
+                metric.transcriptionId == transcriptionId
+            }
+        )
+        guard try modelContext.fetchCount(descriptor) == 0 else { return false }
+
+        modelContext.insert(SessionDiagnosticMetric(
+            transcriptionId: transcriptionId,
+            timestamp: timestamp,
+            succeeded: transcription.transcriptionStatus == TranscriptionStatus.completed.rawValue,
+            actualProvider: provider.rawValue,
+            fallbackPath: route.rawValue,
+            audioDuration: transcription.duration,
+            hotwordCount: hints?.vocabulary.count ?? 0,
+            contextTypes: hints?.sourceTypes ?? [],
+            errorClassification: errorClassification,
+            transcriptionDuration: transcription.transcriptionDuration,
+            enhancementDuration: transcription.enhancementDuration,
+            totalDuration: totalDuration
+        ))
+        logger.notice("Recorded redacted diagnostic metric")
+        return true
+    }
+
+    @discardableResult
     static func recordRecorderSession(
         transcription: Transcription,
         model: (any TranscriptionModel)?,

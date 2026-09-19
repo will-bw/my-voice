@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
-- 当前检查点：D（隐私默认值、脱敏指标与可复现评测工具）；A/C 已验收，B1/B2/B3 真实百炼验收待凭证与个人语料
-- 状态：C 已完成并通过真实 store 增量迁移、稳定签名 Release 构建与 37 个 XCTest；开始 D
+- 当前检查点：D 已完成所有不依赖外部输入的实现与真实本机验证；A/C 已验收，B1/B2/B3/D 完整实测待凭证与个人语料
+- 状态：41 个 XCTest + 3 个 Python 工具测试通过；录音默认关闭、双阈值清理、脱敏指标和 100 条语料评测框架已完成
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -30,6 +30,9 @@
 - HUD 在百炼请求建立前显示仅含上下文来源类型和热词数量的临时摘要；partial 到达后切换为实时文本，摘要不含原词、上下文正文或热词列表。
 - Auto Learn 新安装默认人工审核；新增本地 `CorrectionFeedbackMetadata`，把接受、拒绝、Undo、用户改回、置信度和停用状态连接到词库与动态热词信号。
 - 纯标点/大小写风格变化、重复边界锚点和大范围整句重写不会生成永久规则；两次负反馈后具体替换变体停止应用。
+- 原始录音历史默认关闭；用户可显式选择目录、保留天数和空间上限，默认按 7 天或 1 GB 任一先到从旧到新清理，并保护活动会话。
+- 新增白名单化 `SessionDiagnosticMetric`，只保存 Provider、回退路径、阶段耗时、音频时长、热词数量、上下文类型和固定错误分类。
+- 新增至少 100 条/50 条实体标注的 JSONL 评测校验与汇总工具，覆盖准确率、资源、网络、延迟和人工修改指标；私有语料与结果目录不进入 Git。
 
 ## 验证命令与结果
 
@@ -80,6 +83,15 @@
 | `xcodebuild test … -only-testing:VoiceInkTests`（C） | 通过：37 个 XCTest；新增 7 个安全学习测试，覆盖四类审核、迁移、门禁、Undo/拒绝/改回与停用 |
 | C 增量 Release 构建与深度签名校验 | 通过：Apple Development 稳定签名；Bundle ID `com.will.myvoice.VoiceInk`，TeamIdentifier `22ABMXL88T` |
 | C 真实 `dictionary.store` 启动迁移 | 通过：迁移前后 `WordReplacement=0`，新增 `ZCORRECTIONFEEDBACKMETADATA`，侧表记录 0；日志 `created=0 duplicates=0 orphans=0` |
+| `xcodebuild test … -only-testing:VoiceInkTests`（D） | 通过：41 个 XCTest；新增 4 个历史/脱敏指标测试，覆盖默认关闭、双阈值、最旧优先、活动保护和字段白名单 |
+| `python -m unittest discover -s scripts/tests` | 通过：3 个工具测试；验证 100 条/50 条实体门槛、重复结果拒绝、逐实验组完整覆盖门槛及 CER、实体、延迟、资源汇总 |
+| D `make local` | 通过：`** BUILD SUCCEEDED **`；Apple Development 稳定签名 Release 产物启动成功 |
+| D 真实 store 启动迁移 | 通过：新增 `ZSESSIONDIAGNOSTICMETRIC`，迁移后初始记录 0；三类 store 已备份到 `MigrationBackups/D-20260919-163812` |
+| Recording History 真实 UI | 首次为 off；开启后显示保存目录、7 天、1 GB、立即清理和清空；关闭时可选保留或删除已有录音 |
+| 默认关闭真实短录音 | 通过：约 1.987 秒本地录音前后目录文件数 5→5；临时音频已删除，诊断侧表成功写入脱敏记录 |
+| `scripts/measure_runtime.sh` / `footprint` | 新鲜启动空闲 CPU 0.0%，物理占用 57 MB、Energy Impact 0.0；一次本地识别后稳定为 CPU 0.1%、物理占用 86 MB、Energy Impact 0.1 |
+| 空闲网络 10 秒差值 | 0 B 入 / 0 B 出；进程存在到本机代理的空闲连接，但采样窗口无流量 |
+| 进程启动采样 | `open -n` 到 PID 可见 0.077 秒；仅代表进程创建，不冒充完整 UI 就绪时间 |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。
 
@@ -132,6 +144,23 @@
 - 37 个 XCTest 全部通过，其中 7 个 C 专项测试覆盖四类审核、侧表迁移、局部纠错保留、误学习过滤和规则停用。
 - 当前 Mac 的真实 store 已备份到 `~/Library/Application Support/com.will.myvoice/MigrationBackups/C-20260919-162603` 后原地迁移；可见规则数量保持为 0，侧表创建成功，签名应用已重新启动。
 - SenseVoice Small 继续作为默认本地模型；与 Whisper Large v3 Turbo Quantized 的同语料对照等待个人真实语料和对应模型结果，不据主观判断改默认值。
+
+## D 进展
+
+- `Save Recording History` 默认关闭；完成、失败或取消后删除临时音频并清空转写记录中的音频地址。开启后可选目录、1/3/7/14/30 天和 512 MB/1/2/5 GB。
+- `AudioHistoryCleanupPlanner` 对年龄与总空间做同一次确定性规划，任一阈值触发即从最旧文件开始删除；`pending` 活动会话始终受保护。
+- `SessionDiagnosticMetric` 独立于统计主表，只接受固定 Provider、路径、上下文来源和错误分类，以及非负数值；不包含正文、热词列表、上下文、Key、请求头或音频。
+- `scripts/evaluate_corpus.py` 强制至少 100 条语料及 50 条实体标注，拒绝同一实验结果重复写入，并要求每个实验组完整覆盖语料后才允许冻结参数；按实验路径汇总 CER、专业实体 Recall/Precision、误吸附率、最终修改率、P50/P95、成功率、CPU、RSS、Energy Impact 和网络字节。
+- 评测工具不会调用 Provider、补齐样本或生成结果；私有 Manifest/录音/结果目录已忽略。详细格式与边界见 `docs/D_HISTORY_METRICS_EVALUATION.md`。
+- finalized 句段增量写入和 AOQ 仍仅为独立实验，不进入默认主链路。VAD、超时、Top-K 和评分权重在个人真实完整数据到位前不冻结。
+- 当前真实空闲物理占用 57～86 MB，低于需求的 150 MB；CPU 0.0～0.1%，10 秒网络增量为 0 B。峰值 414 MB 来自按需本地模型识别，不计作空闲模型常驻。
+
+## 当前精确阻塞项
+
+- 百炼真实验收需要用户在应用内提供同地域 Workspace ID 和普通按量 API Key；Key 只进 Keychain。
+- 完整 100 条 A/B、SenseVoice/Whisper 对照和参数冻结需要用户个人录音、人工真值、至少 50 条实体标注及最终修改文本。
+- 浏览器与 VS Code 的真实 Streaming partial/final、焦点恢复和分级回退需要百炼凭证；现阶段只有 Mock 与 TextEdit/SenseVoice 真机基线。
+- 30 分钟空闲、连续 100 次短句和 30 分钟间歇内存增长属于长时真实验收，必须结合个人语料执行，不能由合成或静音样本冒充。
 
 ## 已解除阻塞
 

@@ -56,6 +56,7 @@ struct VoiceInkApp: App {
             WordReplacement.self,
             CorrectionFeedbackMetadata.self,
             SessionMetric.self,
+            SessionDiagnosticMetric.self,
         ])
         let resolvedContainer: ModelContainer
 
@@ -267,7 +268,7 @@ struct VoiceInkApp: App {
             cloudKitDatabase: .none
         )
 
-        let statsSchema = Schema([SessionMetric.self])
+        let statsSchema = Schema([SessionMetric.self, SessionDiagnosticMetric.self])
         let statsConfig = ModelConfiguration(
             "stats",
             schema: statsSchema,
@@ -296,7 +297,7 @@ struct VoiceInkApp: App {
         ])
         let dictionaryConfig = ModelConfiguration("dictionary", schema: dictionarySchema, isStoredInMemoryOnly: true)
 
-        let statsSchema = Schema([SessionMetric.self])
+        let statsSchema = Schema([SessionMetric.self, SessionDiagnosticMetric.self])
         let statsConfig = ModelConfiguration("stats", schema: statsSchema, isStoredInMemoryOnly: true)
 
         do {
@@ -349,7 +350,7 @@ struct VoiceInkApp: App {
 
                             // Run due audio-only cleanup and schedule future checks when transcript cleanup is not managing retention.
                             if !UserDefaults.standard.bool(forKey: CleanupSettingsKeys.isTranscriptionCleanupEnabled)
-                                && UserDefaults.standard.bool(forKey: CleanupSettingsKeys.isAudioCleanupEnabled)
+                                && AudioHistorySettings.isEnabled
                             {
                                 Task {
                                     await audioCleanupManager.runAutomaticCleanupIfNeeded(

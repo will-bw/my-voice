@@ -1,3 +1,4 @@
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -10,6 +11,9 @@ struct HistorySettingsPanel: View {
     @AppStorage(CleanupSettingsKeys.transcriptionRetentionMinutes) private var transcriptionRetentionMinutes = 24 * 60
     @AppStorage(CleanupSettingsKeys.isAudioCleanupEnabled) private var isAudioCleanupEnabled = false
     @AppStorage(CleanupSettingsKeys.audioRetentionPeriod) private var audioRetentionPeriod = 7
+    @AppStorage(CleanupSettingsKeys.isAudioHistoryEnabled) private var isAudioHistoryEnabled = false
+    @AppStorage(CleanupSettingsKeys.audioHistoryDirectory) private var audioHistoryDirectory = ""
+    @AppStorage(CleanupSettingsKeys.audioHistoryMaximumBytes) private var audioHistoryMaximumBytes = 1_073_741_824
 
     @State private var isPerformingAudioCleanup = false
     @State private var isShowingAudioConfirmation = false
@@ -17,6 +21,7 @@ struct HistorySettingsPanel: View {
     @State private var showAudioCleanupResult = false
     @State private var audioCleanupResult: (deletedCount: Int, errorCount: Int) = (0, 0)
     @State private var showTranscriptCleanupResult = false
+    @State private var showDisabledHistoryChoice = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,9 +72,21 @@ struct HistorySettingsPanel: View {
 
                 if !isTranscriptionCleanupEnabled {
                     Section {
-                        Toggle("Auto-delete Audio Files", isOn: $isAudioCleanupEnabled)
+                        Toggle("Save Recording History", isOn: $isAudioHistoryEnabled)
 
-                        if isAudioCleanupEnabled {
+                        if isAudioHistoryEnabled {
+                            LabeledContent("Save Folder") {
+                                HStack {
+                                    Text(audioHistoryDirectory.isEmpty
+                                        ? AudioHistorySettings.defaultRecordingsDirectory.path
+                                        : audioHistoryDirectory)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .foregroundStyle(.secondary)
+                                    Button("Choose…") { chooseAudioHistoryDirectory() }
+                                }
+                            }
+
                             Picker("Keep Audio For", selection: $audioRetentionPeriod) {
                                 Text("1 day").tag(1)
                                 Text("3 days").tag(3)
@@ -78,17 +95,33 @@ struct HistorySettingsPanel: View {
                                 Text("30 days").tag(30)
                             }
 
+                            Picker("Maximum Space", selection: $audioHistoryMaximumBytes) {
+                                Text("512 MB").tag(536_870_912)
+                                Text("1 GB").tag(1_073_741_824)
+                                Text("2 GB").tag(2_147_483_648)
+                                Text("5 GB").tag(5_368_709_120)
+                            }
+
+                            Text("The oldest recordings are deleted when either the age or space limit is reached. Active recordings are protected.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
                             Button {
                                 analyzeAudioCleanup()
                             } label: {
                                 Text(isPerformingAudioCleanup ? "Analyzing..." : "Run Cleanup Now")
                             }
                             .disabled(isPerformingAudioCleanup)
+
+                            Button("Clear All Recording History", role: .destructive) {
+                                analyzeAllAudio()
+                            }
+                            .disabled(isPerformingAudioCleanup)
                         }
                     } header: {
                         sectionHeader(
-                            "Audio Files",
-                            tip: "Delete old recordings while keeping transcript history."
+                            "Recording History",
+                            tip: "Recording history is off by default. Enabling it stores raw audio in the selected folder with bounded retention."
                         )
                     }
                 }
@@ -133,27 +166,39 @@ struct HistorySettingsPanel: View {
                 Text(String(localized: "Deleted \(audioCleanupResult.deletedCount) audio files."))
             }
         }
+        .alert("Recording History Disabled", isPresented: $showDisabledHistoryChoice) {
+            Button("Keep Existing Recordings", role: .cancel) {}
+            Button("Delete Existing Recordings", role: .destructive) {
+                deleteAllAudioWithoutConfirmation()
+            }
+        } message: {
+            Text("New recordings will not be retained. Choose whether existing recording files should remain.")
+        }
         .onChange(of: isTranscriptionCleanupEnabled) { _, newValue in
             if newValue {
                 isAudioCleanupEnabled = false
+                isAudioHistoryEnabled = false
                 AudioCleanupManager.shared.stopAutomaticCleanup()
-            } else if isAudioCleanupEnabled {
+            } else if isAudioHistoryEnabled {
                 AudioCleanupManager.shared.startAutomaticCleanup(modelContext: modelContext)
             }
         }
-        .onChange(of: isAudioCleanupEnabled) { _, newValue in
+        .onChange(of: isAudioHistoryEnabled) { _, newValue in
             guard !isTranscriptionCleanupEnabled else {
                 if newValue {
-                    isAudioCleanupEnabled = false
+                    isAudioHistoryEnabled = false
                 }
                 AudioCleanupManager.shared.stopAutomaticCleanup()
                 return
             }
 
             if newValue {
+                isAudioCleanupEnabled = true
                 AudioCleanupManager.shared.startAutomaticCleanup(modelContext: modelContext)
             } else {
+                isAudioCleanupEnabled = false
                 AudioCleanupManager.shared.stopAutomaticCleanup()
+                showDisabledHistoryChoice = true
             }
         }
     }
@@ -175,6 +220,39 @@ struct HistorySettingsPanel: View {
                 isPerformingAudioCleanup = false
                 isShowingAudioConfirmation = true
             }
+        }
+    }
+
+    private func analyzeAllAudio() {
+        Task { @MainActor in
+            isPerformingAudioCleanup = true
+            cleanupInfo = AudioCleanupManager.shared.getAllAudioInfo(modelContext: modelContext)
+            isPerformingAudioCleanup = false
+            isShowingAudioConfirmation = true
+        }
+    }
+
+    private func chooseAudioHistoryDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = String(localized: "Choose")
+        if panel.runModal() == .OK, let url = panel.url {
+            audioHistoryDirectory = url.path
+        }
+    }
+
+    private func deleteAllAudioWithoutConfirmation() {
+        Task { @MainActor in
+            let all = AudioCleanupManager.shared.getAllAudioInfo(modelContext: modelContext)
+            let result = await AudioCleanupManager.shared.runCleanupForTranscriptions(
+                modelContext: modelContext,
+                transcriptions: all.transcriptions
+            )
+            audioCleanupResult = result
+            showAudioCleanupResult = true
         }
     }
 

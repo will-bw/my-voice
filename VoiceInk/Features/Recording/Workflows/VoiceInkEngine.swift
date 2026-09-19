@@ -109,7 +109,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
 
     let recorder = Recorder()
     var recordedFile: URL? = nil
-    let recordingsDirectory: URL
+    var recordingsDirectory: URL { AudioHistorySettings.recordingsDirectory }
 
     // Injected managers
     let whisperModelManager: WhisperModelManager
@@ -143,10 +143,6 @@ class VoiceInkEngine: NSObject, ObservableObject {
         } else {
             self.assistantChat = nil
         }
-
-        let appSupportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(AppIdentity.applicationSupportDirectoryName)
-        self.recordingsDirectory = appSupportDirectory.appendingPathComponent("Recordings")
 
         self.serviceRegistry = TranscriptionServiceRegistry(
             modelProvider: whisperModelManager,
@@ -248,6 +244,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
                         }
 
                         do {
+                            self.createRecordingsDirectoryIfNeeded()
                             let fileName = "\(UUID().uuidString).wav"
                             let permanentURL = self.recordingsDirectory.appendingPathComponent(fileName)
                             self.recordedFile = permanentURL
@@ -554,6 +551,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
         else {
             transcription.text = String(localized: "Transcription Failed: No model selected")
             transcription.transcriptionStatus = TranscriptionStatus.failed.rawValue
+            discardAudioUnlessHistoryEnabled(for: transcription, at: audioURL)
             try? modelContext.save()
             recordingState = .idle
             activePipelineUseCase = .newSession
@@ -639,6 +637,9 @@ class VoiceInkEngine: NSObject, ObservableObject {
                 }
             )
         )
+
+        discardAudioUnlessHistoryEnabled(for: transcription, at: audioURL)
+        try? modelContext.save()
 
         let didFinishActivePipeline = activePipelineTranscriptionID == transcriptionID
         if didFinishActivePipeline {
@@ -748,6 +749,8 @@ class VoiceInkEngine: NSObject, ObservableObject {
             transcriptionStatus: .canceled
         )
 
+        discardAudioUnlessHistoryEnabled(for: transcription, at: recordedFile)
+
         modelContext.insert(transcription)
 
         do {
@@ -755,6 +758,18 @@ class VoiceInkEngine: NSObject, ObservableObject {
             NotificationCenter.default.post(name: .transcriptionCreated, object: transcription)
         } catch {
             logger.error("Failed to save canceled recording: \(error, privacy: .public)")
+        }
+    }
+
+    private func discardAudioUnlessHistoryEnabled(for transcription: Transcription, at url: URL) {
+        guard !AudioHistorySettings.isEnabled else { return }
+        do {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            transcription.audioFileURL = nil
+        } catch {
+            logger.error("Failed to delete temporary recording: \(error, privacy: .public)")
         }
     }
 

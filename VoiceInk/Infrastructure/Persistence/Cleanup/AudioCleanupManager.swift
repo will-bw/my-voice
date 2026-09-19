@@ -1,6 +1,39 @@
 import Foundation
 import SwiftData
 
+struct AudioHistoryFile: Equatable {
+    let id: UUID
+    let timestamp: Date
+    let size: Int64
+    let isProtected: Bool
+}
+
+enum AudioHistoryCleanupPlanner {
+    static func deletionIDs(
+        files: [AudioHistoryFile],
+        now: Date,
+        retentionDays: Int,
+        maximumBytes: Int64
+    ) -> Set<UUID> {
+        let sorted = files.sorted {
+            if $0.timestamp != $1.timestamp { return $0.timestamp < $1.timestamp }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        let cutoff = now.addingTimeInterval(-TimeInterval(max(1, retentionDays) * 86_400))
+        var deleted = Set(sorted.filter { !$0.isProtected && $0.timestamp < cutoff }.map(\.id))
+        var retainedBytes = sorted.reduce(Int64(0)) { total, file in
+            deleted.contains(file.id) ? total : total + max(0, file.size)
+        }
+
+        for file in sorted where retainedBytes > max(1, maximumBytes) {
+            guard !file.isProtected, !deleted.contains(file.id) else { continue }
+            deleted.insert(file.id)
+            retainedBytes -= max(0, file.size)
+        }
+        return deleted
+    }
+}
+
 /// A utility class that manages automatic cleanup of audio files while preserving transcript data
 @MainActor
 final class AudioCleanupManager {
@@ -29,7 +62,7 @@ final class AudioCleanupManager {
 
     /// Run automatic cleanup once if it is due. This is safe to call on app/window appear.
     func runAutomaticCleanupIfNeeded(modelContext: ModelContext) async {
-        guard UserDefaults.standard.bool(forKey: CleanupSettingsKeys.isAudioCleanupEnabled),
+        guard AudioHistorySettings.isEnabled,
             !UserDefaults.standard.bool(forKey: CleanupSettingsKeys.isTranscriptionCleanupEnabled),
             shouldRunAutomaticCleanup()
         else {
@@ -51,30 +84,12 @@ final class AudioCleanupManager {
     func getCleanupInfo(modelContext: ModelContext) async -> (
         fileCount: Int, totalSize: Int64, transcriptions: [Transcription]
     ) {
-        // Get retention period from UserDefaults
-        let effectiveRetentionDays = UserDefaults.standard.integer(forKey: CleanupSettingsKeys.audioRetentionPeriod)
-
-        // Calculate the cutoff date
-        let calendar = Calendar.current
-        guard let cutoffDate = calendar.date(byAdding: .day, value: -effectiveRetentionDays, to: Date()) else {
-            return (0, 0, [])
-        }
-
         do {
             return try { () throws -> (Int, Int64, [Transcription]) in
-                // Create a predicate to find transcriptions with audio files older than the cutoff date
-                let descriptor = FetchDescriptor<Transcription>(
-                    predicate: #Predicate<Transcription> { transcription in
-                        transcription.timestamp < cutoffDate && transcription.audioFileURL != nil
-                    }
-                )
-
-                let transcriptions = try modelContext.fetch(descriptor)
-
-                // Calculate stats (can be done on any thread)
+                let transcriptions = try modelContext.fetch(FetchDescriptor<Transcription>())
                 var fileCount = 0
                 var totalSize: Int64 = 0
-                var eligibleTranscriptions: [Transcription] = []
+                var available: [(transcription: Transcription, file: AudioHistoryFile)] = []
 
                 for transcription in transcriptions {
                     if let urlString = transcription.audioFileURL,
@@ -84,11 +99,31 @@ final class AudioCleanupManager {
                         if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
                             let fileSize = attributes[.size] as? Int64
                         {
-                            totalSize += fileSize
-                            fileCount += 1
-                            eligibleTranscriptions.append(transcription)
+                            available.append((
+                                transcription,
+                                AudioHistoryFile(
+                                    id: transcription.id,
+                                    timestamp: transcription.timestamp,
+                                    size: fileSize,
+                                    isProtected: transcription.transcriptionStatus == TranscriptionStatus.pending.rawValue
+                                )
+                            ))
                         }
                     }
+                }
+
+                let deletionIDs = AudioHistoryCleanupPlanner.deletionIDs(
+                    files: available.map(\.file),
+                    now: Date(),
+                    retentionDays: AudioHistorySettings.retentionDays,
+                    maximumBytes: AudioHistorySettings.maximumBytes
+                )
+                let eligibleTranscriptions = available.compactMap { entry in
+                    deletionIDs.contains(entry.file.id) ? entry.transcription : nil
+                }
+                for entry in available where deletionIDs.contains(entry.file.id) {
+                    fileCount += 1
+                    totalSize += entry.file.size
                 }
 
                 return (fileCount, totalSize, eligibleTranscriptions)
@@ -100,32 +135,14 @@ final class AudioCleanupManager {
 
     /// Perform the cleanup operation
     private func performCleanup(modelContext: ModelContext) async {
-        // Get retention period from UserDefaults
-        let effectiveRetentionDays = UserDefaults.standard.integer(forKey: CleanupSettingsKeys.audioRetentionPeriod)
-
-        // Check if automatic cleanup is enabled
-        let isCleanupEnabled = UserDefaults.standard.bool(forKey: CleanupSettingsKeys.isAudioCleanupEnabled)
-        guard isCleanupEnabled else { return }
-
-        // Calculate the cutoff date
-        let calendar = Calendar.current
-        guard let cutoffDate = calendar.date(byAdding: .day, value: -effectiveRetentionDays, to: Date()) else {
-            return
-        }
+        guard AudioHistorySettings.isEnabled else { return }
 
         do {
             try { () throws -> Void in
-                // Create a predicate to find transcriptions with audio files older than the cutoff date
-                let descriptor = FetchDescriptor<Transcription>(
-                    predicate: #Predicate<Transcription> { transcription in
-                        transcription.timestamp < cutoffDate && transcription.audioFileURL != nil
-                    }
-                )
-
-                let transcriptions = try modelContext.fetch(descriptor)
+                let cleanupInfo = try cleanupCandidates(modelContext: modelContext)
                 var deletedCount = 0
 
-                for transcription in transcriptions {
+                for transcription in cleanupInfo.transcriptions {
                     if let urlString = transcription.audioFileURL,
                         let url = URL(string: urlString),
                         FileManager.default.fileExists(atPath: url.path)
@@ -147,6 +164,63 @@ final class AudioCleanupManager {
         } catch {
             // Silently fail - cleanup is non-critical
         }
+    }
+
+    private func cleanupCandidates(modelContext: ModelContext) throws -> (
+        fileCount: Int, totalSize: Int64, transcriptions: [Transcription]
+    ) {
+        let transcriptions = try modelContext.fetch(FetchDescriptor<Transcription>())
+        var available: [(Transcription, AudioHistoryFile)] = []
+        for transcription in transcriptions {
+            guard let urlString = transcription.audioFileURL,
+                let url = URL(string: urlString),
+                FileManager.default.fileExists(atPath: url.path),
+                let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                let fileSize = attributes[.size] as? Int64
+            else { continue }
+            available.append((
+                transcription,
+                AudioHistoryFile(
+                    id: transcription.id,
+                    timestamp: transcription.timestamp,
+                    size: fileSize,
+                    isProtected: transcription.transcriptionStatus == TranscriptionStatus.pending.rawValue
+                )
+            ))
+        }
+        let ids = AudioHistoryCleanupPlanner.deletionIDs(
+            files: available.map(\.1),
+            now: Date(),
+            retentionDays: AudioHistorySettings.retentionDays,
+            maximumBytes: AudioHistorySettings.maximumBytes
+        )
+        let selected = available.filter { ids.contains($0.1.id) }
+        return (
+            selected.count,
+            selected.reduce(Int64(0)) { $0 + $1.1.size },
+            selected.map(\.0)
+        )
+    }
+
+    func getAllAudioInfo(modelContext: ModelContext) -> (
+        fileCount: Int, totalSize: Int64, transcriptions: [Transcription]
+    ) {
+        let transcriptions = (try? modelContext.fetch(FetchDescriptor<Transcription>())) ?? []
+        var selected: [Transcription] = []
+        var totalSize: Int64 = 0
+        for transcription in transcriptions where transcription.transcriptionStatus != TranscriptionStatus.pending.rawValue {
+            guard let value = transcription.audioFileURL,
+                let url = URL(string: value),
+                FileManager.default.fileExists(atPath: url.path)
+            else { continue }
+            selected.append(transcription)
+            if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                let size = attributes[.size] as? Int64
+            {
+                totalSize += size
+            }
+        }
+        return (selected.count, totalSize, selected)
     }
 
     /// Run cleanup manually - can be called from settings

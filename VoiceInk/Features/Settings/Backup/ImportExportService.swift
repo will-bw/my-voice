@@ -177,6 +177,8 @@ class ImportExportService {
                 forKey: CleanupSettingsKeys.transcriptionRetentionMinutes),
             isAudioCleanupEnabled: UserDefaults.standard.bool(forKey: CleanupSettingsKeys.isAudioCleanupEnabled),
             audioRetentionPeriod: UserDefaults.standard.integer(forKey: CleanupSettingsKeys.audioRetentionPeriod),
+            isAudioHistoryEnabled: AudioHistorySettings.isEnabled,
+            audioHistoryMaximumBytes: AudioHistorySettings.maximumBytes,
 
             isSystemMuteEnabled: mediaController.isSystemMuteEnabled,
             isPauseMediaEnabled: playbackController.isPauseMediaEnabled,

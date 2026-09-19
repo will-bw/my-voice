@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-enum TranscriptionRoute: String, Codable, Sendable {
+enum TranscriptionRoute: String, Codable, CaseIterable, Sendable {
     case selectedModel = "selected-model"
     case streaming = "streaming"
     case batchFallback = "batch-fallback"
@@ -21,6 +21,7 @@ struct TranscriptionSessionResult {
     let text: String
     let route: TranscriptionRoute
     let modelDisplayName: String
+    let provider: ModelProvider
 }
 
 struct LocalTranscriptionFallback {
@@ -65,7 +66,12 @@ final class FileTranscriptionSession: TranscriptionSession {
             throw VoiceInkEngineError.transcriptionFailed
         }
         let text = try await service.transcribe(audioURL: audioURL, model: model, context: context)
-        return TranscriptionSessionResult(text: text, route: .selectedModel, modelDisplayName: model.displayName)
+        return TranscriptionSessionResult(
+            text: text,
+            route: .selectedModel,
+            modelDisplayName: model.displayName,
+            provider: model.provider
+        )
     }
 
     func cancel() {
@@ -178,7 +184,8 @@ final class StreamingTranscriptionSession: TranscriptionSession {
                     return TranscriptionSessionResult(
                         text: text,
                         route: .streaming,
-                        modelDisplayName: model.displayName
+                        modelDisplayName: model.displayName,
+                        provider: model.provider
                     )
                 case .requiresBatchFallback:
                     logger.notice("Streaming provider requested full batch transcription")
@@ -219,7 +226,8 @@ final class StreamingTranscriptionSession: TranscriptionSession {
             return TranscriptionSessionResult(
                 text: text,
                 route: .batchFallback,
-                modelDisplayName: batchFallbackModel.displayName
+                modelDisplayName: batchFallbackModel.displayName,
+                provider: batchFallbackModel.provider
             )
         } catch {
             if shouldStopWithoutFallback(error) || !shouldUseLocalFallback(after: error) { throw error }
@@ -253,7 +261,8 @@ final class StreamingTranscriptionSession: TranscriptionSession {
         return TranscriptionSessionResult(
             text: text,
             route: .localFallback,
-            modelDisplayName: localFallback.model.displayName
+            modelDisplayName: localFallback.model.displayName,
+            provider: localFallback.model.provider
         )
     }
 

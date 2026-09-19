@@ -5,7 +5,48 @@ enum CleanupSettingsKeys {
     static let transcriptionRetentionMinutes = "TranscriptionRetentionMinutes"
     static let isAudioCleanupEnabled = "IsAudioCleanupEnabled"
     static let audioRetentionPeriod = "AudioRetentionPeriod"
+    static let isAudioHistoryEnabled = "IsAudioHistoryEnabled"
+    static let audioHistoryDirectory = "AudioHistoryDirectory"
+    static let audioHistoryMaximumBytes = "AudioHistoryMaximumBytes"
     static let lastAutomaticAudioCleanupDate = "AudioCleanupLastAutomaticCleanupDate"
+}
+
+enum AudioHistorySettings {
+    static let defaultRetentionDays = 7
+    static let defaultMaximumBytes: Int64 = 1_073_741_824
+
+    static var isEnabled: Bool {
+        isEnabled(defaults: .standard)
+    }
+
+    static func isEnabled(defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: CleanupSettingsKeys.isAudioHistoryEnabled)
+    }
+
+    static var retentionDays: Int {
+        max(1, UserDefaults.standard.integer(forKey: CleanupSettingsKeys.audioRetentionPeriod))
+    }
+
+    static var maximumBytes: Int64 {
+        let stored = UserDefaults.standard.object(forKey: CleanupSettingsKeys.audioHistoryMaximumBytes) as? NSNumber
+        return max(1, stored?.int64Value ?? defaultMaximumBytes)
+    }
+
+    static var recordingsDirectory: URL {
+        if isEnabled,
+            let path = UserDefaults.standard.string(forKey: CleanupSettingsKeys.audioHistoryDirectory),
+            !path.isEmpty
+        {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        return defaultRecordingsDirectory
+    }
+
+    static var defaultRecordingsDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(AppIdentity.applicationSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("Recordings", isDirectory: true)
+    }
 }
 
 enum RecorderDisplaySettingsKeys {
@@ -163,6 +204,9 @@ enum AppDefaults {
             CleanupSettingsKeys.transcriptionRetentionMinutes: 1440,
             CleanupSettingsKeys.isAudioCleanupEnabled: false,
             CleanupSettingsKeys.audioRetentionPeriod: 7,
+            CleanupSettingsKeys.isAudioHistoryEnabled: false,
+            CleanupSettingsKeys.audioHistoryDirectory: "",
+            CleanupSettingsKeys.audioHistoryMaximumBytes: AudioHistorySettings.defaultMaximumBytes,
 
             // UI & Behavior
             "IsMenuBarOnly": false,

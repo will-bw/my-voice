@@ -88,6 +88,8 @@ struct GeneralBackup: Codable {
     let transcriptionRetentionMinutes: Int?
     let isAudioCleanupEnabled: Bool?
     let audioRetentionPeriod: Int?
+    let isAudioHistoryEnabled: Bool?
+    let audioHistoryMaximumBytes: Int64?
 
     let isSystemMuteEnabled: Bool?
     let isPauseMediaEnabled: Bool?
