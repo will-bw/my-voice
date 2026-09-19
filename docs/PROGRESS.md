@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
-- 当前检查点：A（VoiceInk 上游基线）
-- 状态：进行中；稳定签名的 Release 构建已通过，等待 Accessibility 与端到端听写交互验收
+- 当前检查点：B1（百炼 Provider 基础设施）；A 已验收
+- 状态：检查点 A 已完成真实构建、权限、快捷键、SenseVoice 与跨应用投递验证；开始 B1
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -19,7 +19,9 @@
 - 在 Onboarding 模型下载中发现 FluidAudio 默认共享官方缓存路径；已改为本地构建专属的 `com.will.myvoice/FluidAudio/Models`，并完成第二次 Release 构建。
 - 通过 Xcode Personal Team 创建 Apple Development 证书，补齐 Apple WWDR G3 中间证书，并修复 `LocalBuild.xcconfig` 对上游 SDK 条件签名设置的覆盖；`make local` 现可使用稳定签名身份。
 - 稳定签名产物启动后，麦克风与 Accessibility 均显示已授权；完成 Parakeet V3 首次下载与应用内校验，模型仅写入本地隔离目录。
-- Onboarding 已设置全局快捷键为 `Control + Option + Space`，当前停在真实听写体验页，等待用户提供真实语音完成最后交互验收。
+- Onboarding 已设置全局快捷键为 `Control + Option + Space` 并完成真人语音验收。
+- 完成 Onboarding 真人英文听写；Parakeet V3 实际输出 `Please share the meeting notes before lounge.`，相对目标句把 `lunch` 识别为 `lounge`，链路成功但保留该识别误差证据。
+- 下载并将默认 Dictation 模式切换为 SenseVoice Small；在 TextEdit 中完成真人中文跨应用听写，目标与实际输出均为“今天下午3点提交项目报告。”。
 
 ## 验证命令与结果
 
@@ -58,22 +60,32 @@
 | 稳定签名产物权限页 | 麦克风与 Accessibility 均显示“已授权”，“继续”可用 |
 | Parakeet V3 首次下载 | 通过：约 494 MB，应用显示“已下载”；文件位于 `~/Library/Application Support/com.will.myvoice/FluidAudio/Models` |
 | 下载期间网络观察 | VoiceInk 仅连接本机代理 `127.0.0.1:7890`；未观察到官方更新或 License 端点 |
+| SenseVoice Small 下载与选择 | 通过：最终 GGUF 约 241 MB，无 `.partial` 残留；默认 Dictation 模式显示 SenseVoice Small |
+| SenseVoice 真人中文听写 | 通过：历史状态 `completed`，实际 Provider/模型为 SenseVoice Small，输出“今天下午3点提交项目报告。” |
+| SenseVoice 实测耗时 | 两次样本音频 5.068 s / 3.729 s；转写耗时 1.573 s / 0.044 s（第二次受已加载模型缓存影响） |
+| TextEdit 跨应用投递 | 通过：截图可见完整中文结果，焦点与粘贴投递正确 |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。
 
-## 剩余工作
+## 检查点 A 验收结论
 
-- 用同一 Apple Development 身份再次重建，并复核麦克风与 Accessibility 授权是否保持稳定。
-- 在当前 Mac 完成全局快捷键、焦点恢复、跨应用文本投递和 SenseVoice Small 的真实验证。
-- 运行期间复核不会连接官方更新/License 服务，并确认本地数据目录在完成 Onboarding 后与官方 VoiceInk 隔离。
-- 检查点 A 验收通过后再开始 B1，并在实现当天重新核对百炼官方 Streaming、Batch、即时热词和上下文协议。
+- 固定上游、来源记录、本地隔离、真实 Release 构建与启动均通过。
+- 麦克风、Accessibility、全局快捷键、TextEdit 文本投递和 SenseVoice Small 真人中文听写均通过。
+- 本地数据、模型、Keychain 与官方 VoiceInk 隔离；运行期间未观察到官方更新或 License 连接。
+- Apple Development 稳定签名已通过深度验证；指定要求不再绑定每次变化的 cdhash。
+
+## B1 下一步
+
+- 在实现当天重新核对百炼官方 Streaming、Batch、即时热词和上下文协议。
+- 实现普通按量百炼凭证、地域与端点配置，API Key 仅存 macOS Keychain。
+- 新增 Batch/Streaming Provider、连接验证、错误分类、Provider Health、脱敏日志和 Mock HTTP/WebSocket 测试。
 
 ## 已解除阻塞
 
 - 2026-09-19 已安装并选中 `/Applications/Xcode.app/Contents/Developer`；Xcode 首次启动组件和 `make check` 均通过。
 
-## 当前需交互验证
+## 后续需交互验证
 
-- 稳定签名身份的麦克风与 Accessibility 已授权；自动化生成的按键事件不会触发应用的全局快捷键监听，需要用户亲自按 `Control + Option + Space`、说一句话、再按一次完成真实听写。
-- 完成 Onboarding 后仍需验证跨应用投递和 SenseVoice Small，检查点 A 尚未验收完成。
+- 后续代码变更使用同一 Apple Development 身份重建后，复核麦克风与 Accessibility 授权保持稳定。
+- B2 需要继续覆盖浏览器与代码编辑器的真实跨应用 Streaming/final 投递；本次 A 已完成 TextEdit 基线路径。
 - 首次 Parakeet 下载被隔离审计主动停止；共享 `~/Library/Application Support/FluidAudio` 中约 13 MB 的部分下载未自动删除，避免误删既有用户数据。
