@@ -16,6 +16,17 @@ struct ProviderDetailPanel: View {
     @State private var verificationSucceeded = false
     @State private var isShowingRemoveAPIKeyConfirmation = false
     @State private var activeDescriptorID = ""
+    @State private var bailianRegion: BailianRegion = .chinaNorth2
+    @State private var bailianWorkspaceID = ""
+    @State private var bailianHTTPEndpoint = ""
+    @State private var bailianWebSocketEndpoint = ""
+    @State private var isShowingBailianAdvanced = false
+    @State private var bailianConfigurationMessage: String?
+    @State private var bailianConfigurationIsValid = false
+
+    private var isBailian: Bool {
+        descriptor.providerKey.caseInsensitiveCompare("Bailian") == .orderedSame
+    }
 
     private var isConfigured: Bool {
         APIKeyManager.shared.hasAPIKey(forProvider: descriptor.providerKey)
@@ -31,6 +42,10 @@ struct ProviderDetailPanel: View {
         QuickPanelScaffold {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if isBailian {
+                        bailianConfigurationSection
+                    }
+
                     apiKeySection
 
                     if descriptor.hasTranscription {
@@ -51,6 +66,65 @@ struct ProviderDetailPanel: View {
         .onAppear(perform: loadSavedAPIKey)
         .onChange(of: descriptor.id) { _, _ in
             resetProviderState()
+        }
+    }
+
+    private var bailianConfigurationSection: some View {
+        ProviderConfigurationGroup(title: "Bailian Workspace") {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("Region", selection: $bailianRegion) {
+                    ForEach(BailianRegion.allCases, id: \.self) { region in
+                        Text(region.displayName).tag(region)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Workspace ID")
+                        .font(.system(size: 12, weight: .semibold))
+                    TextField("For example: ws-xxxxxxxx", text: $bailianWorkspaceID)
+                        .textFieldStyle(.roundedBorder)
+                    Text("The API key, HTTP endpoint, and WebSocket endpoint must belong to this region and workspace.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                DisclosureGroup("Advanced endpoints", isExpanded: $isShowingBailianAdvanced) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Custom HTTPS endpoint (optional)", text: $bailianHTTPEndpoint)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Custom WSS endpoint (optional)", text: $bailianWebSocketEndpoint)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Leave both fields empty to use the workspace-specific official endpoints.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 8)
+                }
+
+                HStack(spacing: 10) {
+                    Button("Save Workspace") {
+                        saveBailianConfiguration()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(bailianWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if let bailianConfigurationMessage {
+                        Label(
+                            bailianConfigurationMessage,
+                            systemImage: bailianConfigurationIsValid ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(
+                            bailianConfigurationIsValid ? AppTheme.Status.positive : AppTheme.Status.error)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(12)
+            .background(ProviderSurface(cornerRadius: 8))
         }
     }
 
@@ -431,6 +505,7 @@ struct ProviderDetailPanel: View {
         verificationMessage = nil
         verificationDetailMessage = nil
         isShowingRemoveAPIKeyConfirmation = false
+        loadBailianConfiguration()
     }
 
     private func verificationModel(for provider: AIProvider) -> String {
@@ -447,6 +522,7 @@ struct ProviderDetailPanel: View {
     private func verifyAndSaveAPIKey() {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else { return }
+        if isBailian, !persistBailianConfiguration() { return }
 
         isVerifying = true
         verificationMessage = nil
@@ -490,6 +566,41 @@ struct ProviderDetailPanel: View {
                     verificationDetailMessage = result.errorMessage
                 }
             }
+        }
+    }
+
+    private func loadBailianConfiguration() {
+        guard isBailian else { return }
+        let draft = BailianConfigurationStore.shared.loadDraft()
+        bailianRegion = draft.region
+        bailianWorkspaceID = draft.workspaceID
+        bailianHTTPEndpoint = draft.httpEndpoint
+        bailianWebSocketEndpoint = draft.webSocketEndpoint
+        bailianConfigurationMessage = nil
+        bailianConfigurationIsValid = false
+    }
+
+    private func saveBailianConfiguration() {
+        _ = persistBailianConfiguration()
+    }
+
+    @discardableResult
+    private func persistBailianConfiguration() -> Bool {
+        do {
+            _ = try BailianConfigurationStore.shared.validateAndSave(
+                region: bailianRegion,
+                workspaceID: bailianWorkspaceID,
+                httpEndpoint: bailianHTTPEndpoint,
+                webSocketEndpoint: bailianWebSocketEndpoint
+            )
+            bailianConfigurationMessage = String(localized: "Workspace saved. Verify the connection before use.")
+            bailianConfigurationIsValid = true
+            verificationSucceeded = false
+            return true
+        } catch {
+            bailianConfigurationMessage = error.localizedDescription
+            bailianConfigurationIsValid = false
+            return false
         }
     }
 

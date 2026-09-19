@@ -43,6 +43,7 @@ enum CloudProviderRegistry {
         AssemblyAIProvider(),
         XAIProvider(),
         CartesiaProvider(),
+        BailianProvider(),
     ]
 
     static func provider(for modelProvider: ModelProvider) -> (any CloudProvider)? {

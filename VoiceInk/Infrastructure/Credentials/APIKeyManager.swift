@@ -21,6 +21,7 @@ final class APIKeyManager {
         "assemblyai": "assemblyAIAPIKey",
         "xai": "xaiAPIKey",
         "cartesia": "cartesiaAPIKey",
+        "bailian": "bailianAPIKey",
         "openai": "openAIAPIKey",
         "anthropic": "anthropicAPIKey",
         "openrouter": "openRouterAPIKey",
@@ -34,7 +35,13 @@ final class APIKeyManager {
     @discardableResult
     func saveAPIKey(_ key: String, forProvider provider: String) -> Bool {
         let keyIdentifier = keychainIdentifier(forProvider: provider)
-        let success = keychain.save(key, forKey: keyIdentifier)
+        let localOnly = isDeviceOnlyProvider(provider)
+        let success = keychain.save(
+            key,
+            forKey: keyIdentifier,
+            syncable: !localOnly,
+            accessibility: localOnly ? .afterFirstUnlockThisDeviceOnly : nil
+        )
         if success {
             logger.info(
                 "Saved API key for provider: \(provider, privacy: .public) with key: \(keyIdentifier, privacy: .public)"
@@ -46,14 +53,14 @@ final class APIKeyManager {
     /// Retrieves an API key for a provider.
     func getAPIKey(forProvider provider: String) -> String? {
         let keyIdentifier = keychainIdentifier(forProvider: provider)
-        return keychain.getString(forKey: keyIdentifier)
+        return keychain.getString(forKey: keyIdentifier, syncable: !isDeviceOnlyProvider(provider))
     }
 
     /// Deletes an API key for a provider.
     @discardableResult
     func deleteAPIKey(forProvider provider: String) -> Bool {
         let keyIdentifier = keychainIdentifier(forProvider: provider)
-        let success = keychain.delete(forKey: keyIdentifier)
+        let success = keychain.delete(forKey: keyIdentifier, syncable: !isDeviceOnlyProvider(provider))
         if success {
             logger.info("Deleted API key for provider: \(provider, privacy: .public)")
         }
@@ -63,7 +70,7 @@ final class APIKeyManager {
     /// Checks if an API key exists for a provider.
     func hasAPIKey(forProvider provider: String) -> Bool {
         let keyIdentifier = keychainIdentifier(forProvider: provider)
-        return keychain.exists(forKey: keyIdentifier)
+        return keychain.exists(forKey: keyIdentifier, syncable: !isDeviceOnlyProvider(provider))
     }
 
     // MARK: - Custom Model API Keys
@@ -132,6 +139,10 @@ final class APIKeyManager {
             return mapped
         }
         return "\(lowercased)APIKey"
+    }
+
+    private func isDeviceOnlyProvider(_ provider: String) -> Bool {
+        provider.caseInsensitiveCompare("Bailian") == .orderedSame
     }
 
     /// Generates Keychain identifier for custom model API key.

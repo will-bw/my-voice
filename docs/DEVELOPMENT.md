@@ -277,6 +277,12 @@ Provider 启动时使用一个不可变的会话快照：
 - 上下文：`ContextPrivacyPolicy` 输出的短文本
 - 断句：初始使用低延迟 VAD，参数必须通过个人语料实测后冻结
 
+截至 2026-09-19，官方推荐使用包含 Workspace ID 的业务空间专属域名。北京地域 HTTP 与 WebSocket 分别使用
+`https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/...` 和
+`wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/...`；新加坡使用 `ap-southeast-1` 后缀。实现因此将 Workspace ID
+作为地域配置的一部分，并保留显式高级端点覆盖，不自动跨地域回退。当天复核详情见
+[百炼 ASR 协议复核](BAILIAN_PROTOCOL_2026-09-19.md)。
+
 官方当前规定 Streaming 上下文通过 `input.context` 传入，每轮总长度不超过 400 个字符；即时热词通过 `vocabulary` 传入，权重可为 1～5 或 50。实现必须在客户端再次执行长度、数量和权重校验，不能依赖服务端截断。
 
 ### 7.3 音频发送与背压
@@ -885,8 +891,8 @@ HUD 不显示 API Key、完整上下文或完整热词列表。
 - [ ] 再次验证 VoiceInk 固定提交可获取且 LICENSE 未变化。
 - [ ] 在目标 Mac 上记录 Xcode、macOS 和芯片信息。
 - [ ] 取得普通百炼按量 API Key，并确认地域。
-- [ ] 实现当天重新核对百炼 Streaming、Batch、热词和上下文官方协议。
-- [ ] 明确 Mock Server 测试边界，真实 Key 不进入仓库。
+- [x] 实现当天重新核对百炼 Streaming、Batch、热词和上下文官方协议。
+- [x] 明确 Mock Server 测试边界，真实 Key 不进入仓库。
 - [ ] 准备首批 20 条冒烟语料和后续 100 条完整评测语料。
 - [ ] 确认原始录音历史默认关闭。
 - [ ] 确认不添加远程、不推送、不发布，除非收到新的明确授权。

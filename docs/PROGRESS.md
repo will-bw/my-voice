@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
 - 当前检查点：B1（百炼 Provider 基础设施）；A 已验收
-- 状态：检查点 A 已完成真实构建、权限、快捷键、SenseVoice 与跨应用投递验证；开始 B1
+- 状态：B1 协议核心、Provider 注册、Keychain/地域/Workspace 配置和 Mock XCTest 已实现；等待真实百炼凭证端到端验收
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -76,9 +76,12 @@
 
 ## B1 下一步
 
-- 在实现当天重新核对百炼官方 Streaming、Batch、即时热词和上下文协议。
-- 实现普通按量百炼凭证、地域与端点配置，API Key 仅存 macOS Keychain。
-- 新增 Batch/Streaming Provider、连接验证、错误分类、Provider Health、脱敏日志和 Mock HTTP/WebSocket 测试。
+- 已在 2026-09-19 通过阿里云官方文档重新核对 Streaming、Batch、即时热词、上下文和业务空间专属端点协议。
+- 已实现普通按量百炼凭证、地域、Workspace ID 与端点配置；API Key 使用不可同步的 macOS Keychain 项。
+- 已新增 Batch/Streaming Provider、连接验证、错误分类、Provider Health、脱敏日志和 Mock HTTP/WebSocket XCTest。
+- Mock 测试覆盖正常流程、乱序、重复、空 final、`task-failed`、断线、超时、401/403/429/5xx 与取消竞争；14 个测试通过。
+- B1 代码已通过 Apple Development 稳定签名的 Release 构建与深度签名验证。
+- 下一步：用户在应用内提供同地域的 Workspace ID 与普通按量 API Key 后，执行少量 Batch/Streaming 真人音频端到端验收；真实 Key 不进入仓库或测试夹具。
 
 ## 已解除阻塞
 

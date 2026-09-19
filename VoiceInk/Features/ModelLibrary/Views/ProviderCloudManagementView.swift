@@ -44,6 +44,7 @@ struct CloudProviderManagementView: View {
         let preferredOrder = [
             "Groq", "Cerebras", "Gemini", "OpenAI", "OpenRouter", "Anthropic", "Mistral",
             "Deepgram", "ElevenLabs", "Soniox", "Speechmatics", "AssemblyAI", "xAI", "Cartesia",
+            "Bailian",
         ]
 
         return descriptors.sorted { first, second in
@@ -171,6 +172,8 @@ struct ProviderDescriptor: Identifiable {
             return URL(string: "https://console.x.ai/")
         case "cartesia":
             return URL(string: "https://play.cartesia.ai/keys")
+        case "bailian":
+            return URL(string: "https://bailian.console.aliyun.com/model/settings/api-key")
         default:
             return nil
         }
