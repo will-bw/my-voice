@@ -1,6 +1,6 @@
 # my-voice 开发进度
 
-- 当前检查点：D 已完成所有不依赖外部输入的实现与真实本机验证；A/C 已验收，B1/B2/B3/D 云端与语料实测待凭证及个人语料
+- 当前检查点：B1 的真实连接、Streaming 与 Batch 基础端到端已验收；A/C 已验收，B2/B3/D 的真实回退、跨应用覆盖和个人语料实测继续进行
 - 状态：53 个 XCTest + 4 个 Python 工具测试通过；首次引导、精确流式背压、隐私控制、脱敏诊断包、历史清理和严格语料评测框架已完成
 - 更新日期：2026-09-19
 
@@ -41,6 +41,8 @@
 - 设置页新增可审阅的脱敏诊断包导出；仅包含白名单会话字段和环境版本，导出前再次收敛异常或被篡改的数据。
 - 首次引导默认选择 Bailian Cloud Streaming，并要求地域、Workspace ID 与 Keychain API Key 一起验证；只有 Key、没有有效 Workspace 配置时不能继续，失败的连接测试不会持久化 Workspace 草稿。
 - 修复真实设置页连接验证的 HTTP 400：旧实现向 Batch 发送 100 ms 全静音 WAV，百炼会将其判为静音或有效音频过短；现改为建立默认 Streaming 会话并等待 `task-started`，成功后立即关闭且不发送任何音频。新增成功/鉴权失败两条 Mock 回归测试，错误信息继续脱敏。
+- 使用用户在应用内输入的北京地域 Workspace 与普通按量 API Key 完成真实 Streaming 握手验证；Workspace 写入应用配置，Key 只写入独立的本机 Keychain 项，仓库与诊断记录均不包含密钥。
+- 在 TextEdit 中完成真人百炼 Streaming 与 Batch 各一次端到端验收；两次均一次性写入完整 final“今天下午3点提交MyVoice项目报告。”，无重复文本，实际 Provider 均为 Bailian，且未发生回退。验收后已恢复 Streaming 为默认 Dictation 模型。
 - 首次引导的本地模式和云端离线兜底统一为 SenseVoice Small；云端模式可跳过安装，但会明确说明离线识别和自动本地回退不可用。
 
 ## 验证命令与结果
@@ -94,6 +96,9 @@
 | C 增量 Release 构建与深度签名校验 | 通过：Apple Development 稳定签名；Bundle ID `com.will.myvoice.VoiceInk`，TeamIdentifier `22ABMXL88T` |
 | C 真实 `dictionary.store` 启动迁移 | 通过：迁移前后 `WordReplacement=0`，新增 `ZCORRECTIONFEEDBACKMETADATA`，侧表记录 0；日志 `created=0 duplicates=0 orphans=0` |
 | `xcodebuild test … -only-testing:VoiceInkTests`（本轮最终回归） | 通过：53 个 XCTest；覆盖首次引导策略、历史/诊断、动态提示、流式协议、无音频连接验证、三级回退和精确 64 KB 背压 |
+| 百炼真实连接验证 | 通过：设置页显示“已验证/密钥已验证”，Streaming 与 Batch 模型均可用；Keychain 项与 Workspace 配置存在，未读取或输出 Key 内容 |
+| 百炼 Streaming→TextEdit 真人短句 | 通过：7.246 s 音频，Streaming 转写阶段 0.065 s，总处理 0.113 s；实际 Provider `Bailian`、路径 `streaming`、无回退；完整 final 一次写入 |
+| 百炼 Batch→TextEdit 真人短句 | 通过：4.282 s 音频，Batch 转写 0.845 s，总处理 0.861 s；实际 Provider `Bailian`、路径 `selected-model`、无回退；完整 final 一次写入 |
 | `PYTHONDONTWRITEBYTECODE=1 python -m unittest scripts.tests.test_evaluate_corpus` | 通过：4 个工具测试；验证真实音频、100 条/50 条实体门槛、重复/空成功结果/无效数值拒绝，以及同 Provider 三实验臂完整覆盖门槛 |
 | D `make local` | 通过：`** BUILD SUCCEEDED **`；Apple Development 稳定签名 Release 产物启动成功 |
 | D 真实 store 启动迁移 | 通过：新增 `ZSESSIONDIAGNOSTICMETRIC`，迁移后初始记录 0；三类 store 已备份到 `MigrationBackups/D-20260919-163812` |
@@ -117,14 +122,15 @@
 - 本地数据、模型、Keychain 与官方 VoiceInk 隔离；运行期间未观察到官方更新或 License 连接。
 - Apple Development 稳定签名已通过深度验证；指定要求不再绑定每次变化的 cdhash。
 
-## B1 下一步
+## B1 验收结论
 
 - 已在 2026-09-19 通过阿里云官方文档重新核对 Streaming、Batch、即时热词、上下文和业务空间专属端点协议。
 - 已实现普通按量百炼凭证、地域、Workspace ID 与端点配置；API Key 使用不可同步的 macOS Keychain 项。
 - 已新增 Batch/Streaming Provider、连接验证、错误分类、Provider Health、脱敏日志和 Mock HTTP/WebSocket XCTest。
 - Mock 测试覆盖正常流程、乱序、重复、空 final、`task-failed`、断线、超时、401/403/429/5xx 与取消竞争；14 个测试通过。
 - B1 代码已通过 Apple Development 稳定签名的 Release 构建与深度签名验证。
-- 下一步：用户在应用内提供同地域的 Workspace ID 与普通按量 API Key 后，执行少量 Batch/Streaming 真人音频端到端验收；真实 Key 不进入仓库或测试夹具。
+- 北京地域 Workspace 与普通按量 API Key 已在应用内完成真实 Streaming 握手；真实 Key 只在 Keychain 中，未进入仓库、测试夹具或日志。
+- Streaming 与 Batch 真人短句均在 TextEdit 完成端到端转写与 final 投递，基础云端 Provider 验收通过。
 
 ## B2 进展
 
@@ -136,7 +142,7 @@
 - 每次完成结果保存实际识别路径和实际模型；Batch/本地回退会显示明确通知，History Info 可查看 Recognition Path。
 - Provider Health 在进程内共享；已知无效凭证或配置不会反复发起网络请求，配置或 API Key 改变时重置。
 - B1/B2 Mock XCTest 共 21 个，新增覆盖 Streaming 成功、Batch 回退、本地回退、取消禁止回退、无语音禁止回退和累积 committed 合并。
-- 待真实凭证：百炼 Streaming partial/final、Batch 固定音频、TextEdit/浏览器/代码编辑器 final 投递与真实回退验收。
+- 已完成 TextEdit 的真实 Streaming final 与 Batch final 投递；仍待浏览器/代码编辑器、可见 partial 时序以及 Streaming→Batch→SenseVoice 真实故障回退验收。
 
 ## B3 进展
 
@@ -177,9 +183,8 @@
 
 ## 当前精确阻塞项
 
-- 百炼真实验收需要用户在应用内提供同地域 Workspace ID 和普通按量 API Key；Key 只进 Keychain。
 - 完整 100 条 A/B、SenseVoice/Whisper 对照和参数冻结需要用户个人录音、人工真值、至少 50 条实体标注及最终修改文本。
-- 浏览器与 VS Code 的真实 Streaming partial/final、焦点恢复和分级回退需要百炼凭证；现阶段只有 Mock 与 TextEdit/SenseVoice 真机基线。
+- 浏览器与 VS Code 的真实 Streaming partial/final、焦点恢复和分级回退仍待交互验收；TextEdit 的 Streaming、Batch 和 SenseVoice 基础路径已分别通过。
 - 连续 100 次个人短句和 30 分钟间歇使用内存增长仍需结合个人语料执行，不能由合成或静音样本冒充；纯空闲 30 分钟采样已完成。
 
 ## Goal 完成条件审计
@@ -187,10 +192,10 @@
 | # | 当前结论 | 权威证据与缺口 |
 |---|---|---|
 | 1 | 部分满足 | A～D 的非凭证功能已经实现；D 的个人数据参数冻结以及 SenseVoice/Whisper 同语料结论仍缺失。 |
-| 2 | 部分满足 | 53 个 XCTest 与 4 个 Python 工具测试通过；真实百炼端到端、个人语料和连续听写不是这些自动化测试能够证明的范围。 |
-| 3 | 部分满足 | 签名 Release 可构建、启动，SenseVoice→TextEdit 跨应用输入已通过；百炼 Streaming/Batch 及浏览器、代码编辑器路径未验收。 |
-| 4 | 未满足 | Mock 已覆盖三级路径、重复事件和清理；真实 Streaming、Batch、SenseVoice 三级回退尚未使用同一批真实会话完成验证。 |
-| 5 | 实现已满足，实测部分满足 | 动态热词、上下文隐私、录音历史、安全学习和脱敏指标均有实现与专项测试；真实云请求中的提示效果及真实人工纠错仍待凭证/个人样例。 |
+| 2 | 部分满足 | 53 个 XCTest 与 4 个 Python 工具测试通过，真实百炼 Streaming/Batch 基础端到端也已人工通过；真实故障回退、个人语料和连续听写仍不是自动化测试能够证明的范围。 |
+| 3 | 部分满足 | 签名 Release 可构建、启动；SenseVoice、百炼 Streaming 与百炼 Batch 到 TextEdit 的跨应用输入均通过，浏览器和代码编辑器路径仍待验收。 |
+| 4 | 部分满足 | 三条独立真实路径均已通过，Mock 已覆盖三级回退、重复事件和清理；仍需真实触发 Streaming→Batch→SenseVoice 故障回退，验证无重复投递与残留临时音频。 |
+| 5 | 实现已满足，实测部分满足 | 动态热词、上下文隐私、录音历史、安全学习和脱敏指标均有实现与专项测试；真实云请求中的提示效果及真实人工纠错仍待个人样例。 |
 | 6 | 部分满足 | 空闲 CPU/RSS、启动与本地识别样本已测；Streaming 首字、final tail、连续听写成功率和间歇使用增长未测。 |
 | 7 | 部分满足 | 100 条/50 条实体标注的工具和格式完整；尚未提供真实个人语料，因此没有生成或伪造 CER、实体指标、误吸附率和最终修改率。 |
 | 8 | 当前文档已对齐，最终审计待完成 | README、REQUIREMENTS、DEVELOPMENT、PROGRESS、UPSTREAM 已按当前实现更新；真实数据完成后仍需再次核对。 |

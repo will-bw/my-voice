@@ -2,7 +2,7 @@
 
 - 文档版本：v0.1
 - 日期：2026-09-19
-- 状态：设计基线已实施；A～D 的非凭证功能已完成，真实百炼与个人语料验收状态见 [PROGRESS.md](PROGRESS.md)
+- 状态：设计基线已实施；A～D 的非凭证功能已完成，真实百炼 Streaming/Batch 基础端到端已通过，故障回退与个人语料验收状态见 [PROGRESS.md](PROGRESS.md)
 - 对应需求：[REQUIREMENTS.md](REQUIREMENTS.md) v0.2
 - 上游审计基线：VoiceInk [`cd1d96f`](https://github.com/Beingpax/VoiceInk/commit/cd1d96f182b03561f5ef66c6a91e511cd7409c4c)
 

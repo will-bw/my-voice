@@ -2,7 +2,7 @@
 
 面向 macOS 的个人语音输入工具。项目以固定的 VoiceInk 源码快照为底座，接入阿里云百炼 Streaming/Batch ASR，并围绕动态热词、最小上下文、分级回退、安全纠错学习和隐私可控的历史记录进行定制。
 
-检查点 A、B1、B2、B3、C、D 的非凭证实现已经完成，首次引导默认配置 Bailian Streaming，并提供 SenseVoice Small 离线兜底。真实百炼 Streaming/Batch、100 条个人语料 A/B 和跨浏览器/代码编辑器验收仍需要用户 API Key 与个人录音；实际进度和验证边界以 [docs/PROGRESS.md](docs/PROGRESS.md) 为准。
+检查点 A、B1、B2、B3、C、D 的非凭证实现已经完成，首次引导默认配置 Bailian Streaming，并提供 SenseVoice Small 离线兜底。真实百炼 Streaming 与 Batch 到 TextEdit 的基础端到端验收已通过；真实故障回退、跨浏览器/代码编辑器验收和 100 条个人语料 A/B 仍待完成。实际进度和验证边界以 [docs/PROGRESS.md](docs/PROGRESS.md) 为准。
 
 ## 文档
 

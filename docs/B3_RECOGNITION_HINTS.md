@@ -68,4 +68,4 @@ xcodebuild test \
   -only-testing:VoiceInkTests
 ```
 
-当前完整回归的 51 个 XCTest 包含 B3 专项覆盖：规则排序、去重、Top-K 不补齐、显式权重边界、负反馈、三个本地信号独立开关与使用回写、400 字符裁剪、安全控件、自定义拒绝列表暂停、HUD 脱敏摘要、旧词库 store 迁移，以及 Streaming/Batch 快照一致性。当前 Mac 的真实本地 store 也已完成原地迁移与重启验证。真实百炼准确率 A/B 仍需要用户的普通按量 API Key 和个人语料，不能用 Mock 结果替代。
+当前完整回归的 53 个 XCTest 包含 B3 专项覆盖：规则排序、去重、Top-K 不补齐、显式权重边界、负反馈、三个本地信号独立开关与使用回写、400 字符裁剪、安全控件、自定义拒绝列表暂停、HUD 脱敏摘要、旧词库 store 迁移，以及 Streaming/Batch 快照一致性。当前 Mac 的真实本地 store 也已完成原地迁移与重启验证，真实百炼 Streaming/Batch 基础端到端已通过。准确率 A/B 仍需要用户个人语料，不能用 Mock 或单条短句结果替代。
