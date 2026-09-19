@@ -18,6 +18,14 @@ rg -q 'Commercial license validation is disabled in this local build' \
 rg -q 'private let service = "com\.will\.myvoice"' \
     VoiceInk/Infrastructure/Credentials/KeychainService.swift
 rg -q '"com\.will\.myvoice"' VoiceInk/App/Configuration/AppIdentity.swift
+rg -Fq 'appendingPathComponent(AppIdentity.applicationSupportDirectoryName' \
+    VoiceInk/Features/ModelLibrary/State/FluidAudioModelManager.swift
+if rg -q 'AsrModels\.defaultCacheDirectory' \
+    VoiceInk/Features/ModelLibrary/State/FluidAudioModelManager.swift \
+    VoiceInk/Infrastructure/Providers/Transcription/FluidAudio/FluidAudioTranscriptionService.swift; then
+    print -u2 'FluidAudio still uses its shared default model cache'
+    exit 1
+fi
 rg -q 'com\.will\.myvoice\.VoiceInkRefineXPC' Shared/VoiceInkRefineXPCProtocol.swift
 rg -q 'WHISPER_CPP_REVISION := da54572229bcf64ba367d96c7ef15770376c4280' Makefile
 

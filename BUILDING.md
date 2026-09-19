@@ -3,8 +3,17 @@
 ## Requirements
 
 - macOS 14.4 or later
-- Xcode with Command Line Tools
+- Xcode with Command Line Tools and the Metal Toolchain component
 - Git
+- CMake 3.28 or later
+
+Install the Metal Toolchain after installing Xcode:
+
+```bash
+xcodebuild -downloadComponent MetalToolchain
+```
+
+With Homebrew, CMake can be installed using `brew install cmake`.
 
 ## Local Build
 
@@ -55,6 +64,7 @@ Select the `VoiceInk` scheme. Run builds `VoiceInk Dev.app`; Archive uses Releas
 ## Troubleshooting
 
 - Run `make check` to verify the required tools.
+- If `make check` reports a missing Metal Toolchain, run `xcodebuild -downloadComponent MetalToolchain`.
 - Run `make whisper` if the framework is missing.
 - If several Apple Development identities exist, set `LOCAL_CODESIGN_IDENTITY` explicitly.
 - For additional help, open a [GitHub issue](https://github.com/Beingpax/VoiceInk/issues).

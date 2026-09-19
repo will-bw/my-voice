@@ -269,7 +269,7 @@ class FluidAudioModelManager: ObservableObject {
                 guard let repo = Self.parakeetRepo(for: version) else {
                     throw AsrModelsError.loadingFailed("Unsupported Parakeet model version.")
                 }
-                let cacheDirectory = AsrModels.defaultCacheDirectory(for: version)
+                let cacheDirectory = Self.parakeetCacheDirectory(for: version)
                 try await ModelHub.download(
                     repo,
                     to: cacheDirectory.deletingLastPathComponent(),
@@ -383,7 +383,16 @@ class FluidAudioModelManager: ObservableObject {
     }
 
     private func cacheDirectory(for version: AsrModelVersion) -> URL {
-        AsrModels.defaultCacheDirectory(for: version)
+        Self.parakeetCacheDirectory(for: version)
+    }
+
+    nonisolated static func parakeetCacheDirectory(for version: AsrModelVersion) -> URL {
+        guard let repo = parakeetRepo(for: version) else {
+            return fluidAudioModelsRootDirectory()
+                .appendingPathComponent("unsupported-parakeet-version", isDirectory: true)
+        }
+        return fluidAudioModelsRootDirectory()
+            .appendingPathComponent(repo.folderName, isDirectory: true)
     }
 
     nonisolated private static var parakeetUnifiedRequiredFiles: Set<String> {
@@ -429,13 +438,21 @@ class FluidAudioModelManager: ObservableObject {
     nonisolated private static func fluidAudioModelsRootDirectory() -> URL {
         let fileManager = FileManager.default
         if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            #if LOCAL_BUILD
+                return appSupport
+                    .appendingPathComponent(AppIdentity.applicationSupportDirectoryName, isDirectory: true)
+                    .appendingPathComponent("FluidAudio", isDirectory: true)
+                    .appendingPathComponent("Models", isDirectory: true)
+            #else
             return
                 appSupport
                 .appendingPathComponent("FluidAudio", isDirectory: true)
                 .appendingPathComponent("Models", isDirectory: true)
+            #endif
         }
 
         return fileManager.temporaryDirectory
+            .appendingPathComponent(AppIdentity.applicationSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("FluidAudio", isDirectory: true)
             .appendingPathComponent("Models", isDirectory: true)
     }

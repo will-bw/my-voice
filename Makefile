@@ -27,6 +27,8 @@ check:
 	@command -v xcodebuild >/dev/null 2>&1 || { echo "xcodebuild is not installed (need Xcode)"; exit 1; }
 	@xcodebuild -version >/dev/null 2>&1 || { echo "xcodebuild is not usable; install/select the full Xcode app with xcode-select"; exit 1; }
 	@command -v swift >/dev/null 2>&1 || { echo "swift is not installed"; exit 1; }
+	@command -v cmake >/dev/null 2>&1 || { echo "cmake is not installed (need CMake 3.28 or later)"; exit 1; }
+	@xcrun -f metal >/dev/null 2>&1 || { echo "Metal Toolchain is not installed; run: xcodebuild -downloadComponent MetalToolchain"; exit 1; }
 	@echo "Prerequisites OK"
 
 healthcheck: check
@@ -63,7 +65,7 @@ whisper:
 		[ "$$(sed -n '1p' "$(WHISPER_REVISION_FILE)" 2>/dev/null)" != "$(WHISPER_CPP_REVISION)" ]; then \
 		echo "Building pinned whisper.xcframework at $(WHISPER_CPP_REVISION)..."; \
 		rm -rf "$(FRAMEWORK_PATH)"; \
-		cd "$(WHISPER_CPP_DIR)" && ./build-xcframework.sh; \
+		cd "$(WHISPER_CPP_DIR)" && ./build-xcframework.sh && \
 		printf '%s\n' "$(WHISPER_CPP_REVISION)" > "$(WHISPER_REVISION_FILE)"; \
 	else \
 		echo "Pinned whisper.xcframework already built at $(WHISPER_CPP_REVISION), skipping build"; \
