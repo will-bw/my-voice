@@ -2,6 +2,24 @@ import XCTest
 @testable import VoiceInk
 
 final class BailianConfigurationTests: XCTestCase {
+    func testOnboardingRequiresSenseVoiceAndCompleteBailianConfiguration() {
+        XCTAssertEqual(OnboardingTranscriptionPolicy.localFallbackModelName, "sensevoice-small")
+        XCTAssertEqual(OnboardingTranscriptionPolicy.defaultSetupKind, .cloud)
+        XCTAssertEqual(OnboardingTranscriptionPolicy.recommendedCloudProviderKey, "Bailian")
+        XCTAssertFalse(
+            OnboardingTranscriptionPolicy.isProviderReady(
+                providerKey: "Bailian", hasAPIKey: true, hasValidBailianConfiguration: false))
+        XCTAssertTrue(
+            OnboardingTranscriptionPolicy.isProviderReady(
+                providerKey: "Bailian", hasAPIKey: true, hasValidBailianConfiguration: true))
+        XCTAssertFalse(
+            OnboardingTranscriptionPolicy.isProviderReady(
+                providerKey: "Bailian", hasAPIKey: false, hasValidBailianConfiguration: true))
+        XCTAssertTrue(
+            OnboardingTranscriptionPolicy.isProviderReady(
+                providerKey: "Deepgram", hasAPIKey: true, hasValidBailianConfiguration: false))
+    }
+
     func testWorkspaceEndpointsAreRegionBound() throws {
         let configuration = try BailianConfiguration(region: .chinaNorth2, workspaceID: "ws-123")
         XCTAssertEqual(

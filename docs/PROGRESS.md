@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
 - 当前检查点：D 已完成所有不依赖外部输入的实现与真实本机验证；A/C 已验收，B1/B2/B3/D 云端与语料实测待凭证及个人语料
-- 状态：50 个 XCTest + 4 个 Python 工具测试通过；精确流式背压、隐私控制、脱敏诊断包、历史清理和严格语料评测框架已完成
+- 状态：51 个 XCTest + 4 个 Python 工具测试通过；首次引导、精确流式背压、隐私控制、脱敏诊断包、历史清理和严格语料评测框架已完成
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -39,6 +39,8 @@
 - 用户可在词库显式选择协议权重 1～5 或 50；自定义 App/URL 拒绝列表可整体暂停，但安全输入和未知焦点保护始终强制生效。
 - 历史关闭时的会话音频改存应用专属临时目录；启动会清除崩溃遗留文件，真实启动清理已验证。
 - 设置页新增可审阅的脱敏诊断包导出；仅包含白名单会话字段和环境版本，导出前再次收敛异常或被篡改的数据。
+- 首次引导默认选择 Bailian Cloud Streaming，并要求地域、Workspace ID 与 Keychain API Key 一起验证；只有 Key、没有有效 Workspace 配置时不能继续，失败的连接测试不会持久化 Workspace 草稿。
+- 首次引导的本地模式和云端离线兜底统一为 SenseVoice Small；云端模式可跳过安装，但会明确说明离线识别和自动本地回退不可用。
 
 ## 验证命令与结果
 
@@ -90,7 +92,7 @@
 | `xcodebuild test … -only-testing:VoiceInkTests`（C） | 通过：37 个 XCTest；新增 7 个安全学习测试，覆盖四类审核、迁移、门禁、Undo/拒绝/改回与停用 |
 | C 增量 Release 构建与深度签名校验 | 通过：Apple Development 稳定签名；Bundle ID `com.will.myvoice.VoiceInk`，TeamIdentifier `22ABMXL88T` |
 | C 真实 `dictionary.store` 启动迁移 | 通过：迁移前后 `WordReplacement=0`，新增 `ZCORRECTIONFEEDBACKMETADATA`，侧表记录 0；日志 `created=0 duplicates=0 orphans=0` |
-| `xcodebuild test … -only-testing:VoiceInkTests`（本轮最终回归） | 通过：50 个 XCTest；覆盖历史/诊断、动态提示、流式协议、三级回退和精确 64 KB 背压 |
+| `xcodebuild test … -only-testing:VoiceInkTests`（本轮最终回归） | 通过：51 个 XCTest；覆盖首次引导策略、历史/诊断、动态提示、流式协议、三级回退和精确 64 KB 背压 |
 | `PYTHONDONTWRITEBYTECODE=1 python -m unittest scripts.tests.test_evaluate_corpus` | 通过：4 个工具测试；验证真实音频、100 条/50 条实体门槛、重复/空成功结果/无效数值拒绝，以及同 Provider 三实验臂完整覆盖门槛 |
 | D `make local` | 通过：`** BUILD SUCCEEDED **`；Apple Development 稳定签名 Release 产物启动成功 |
 | D 真实 store 启动迁移 | 通过：新增 `ZSESSIONDIAGNOSTICMETRIC`，迁移后初始记录 0；三类 store 已备份到 `MigrationBackups/D-20260919-163812` |
@@ -103,6 +105,7 @@
 | 30 分钟真实空闲采样 | 360 次、间隔 5 秒：平均 CPU 0.0228%，最大 0.7%；平均 RSS 132.0 MiB，最大约 135.0 MiB；最终 footprint 46 MB、峰值 69 MB |
 | 崩溃遗留临时音频清理 | 通过：预置应用专属临时 WAV 后启动签名 Release，文件在初始化时被删除 |
 | 脱敏诊断包真实 UI | 通过：点击后先显示明确 Includes/Excludes 清单；取消后未生成文件，未读取或修改凭据 |
+| 首次引导真实 UI | 通过：默认 Bailian Cloud streaming；地域、Workspace 和安全 Key 输入可见；未提供 Key 时测试/继续禁用；SenseVoice 离线兜底与三级回退说明可见。使用进程级临时启动参数验收，未重置用户设置 |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。
 

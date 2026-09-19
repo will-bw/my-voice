@@ -1,10 +1,10 @@
 import SwiftUI
 
 struct TranscriptionModelDownloadCard: View {
-    let model: FluidAudioModel
+    let model: TranscribeCppModel
     let isDownloaded: Bool
     let isDownloading: Bool
-    let status: FluidAudioDownloadStatus?
+    let status: TranscribeCppDownloadStatus?
     let onDownload: () -> Void
     let onCancel: () -> Void
 
@@ -24,14 +24,17 @@ struct TranscriptionModelDownloadCard: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
-                modelLogo
+                Image(systemName: "waveform.and.mic")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(AppTheme.Text.secondary)
+                    .frame(width: 38, height: 38)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(model.displayName)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(AppTheme.Text.primary)
 
-                    Text("Fast multilingual transcription that runs locally on Mac.")
+                    Text("Chinese-first multilingual fallback that runs locally on this Mac.")
                         .font(.system(size: 12))
                         .foregroundColor(AppTheme.Text.secondary)
                         .lineLimit(1)
@@ -59,20 +62,11 @@ struct TranscriptionModelDownloadCard: View {
         }
     }
 
-    private var modelLogo: some View {
-        Image("nvidia-logo")
-            .resizable()
-            .scaledToFit()
-            .frame(width: 34, height: 28)
-            .frame(width: 38, height: 38)
-            .accessibilityLabel(Text(verbatim: "NVIDIA"))
-    }
-
     private var modelMetadata: some View {
         HStack(spacing: 6) {
             metadataPill(model.size)
-            localizedMetadataPill("25+ languages")
-            localizedMetadataPill("Local")
+            localizedMetadataPill("Chinese + English")
+            localizedMetadataPill("Offline")
         }
     }
 
@@ -94,7 +88,7 @@ struct TranscriptionModelDownloadCard: View {
             .background(Capsule().fill(AppTheme.Surface.subtle))
     }
 
-    private func progressPanel(_ status: FluidAudioDownloadStatus) -> some View {
+    private func progressPanel(_ status: TranscribeCppDownloadStatus) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(status.message)

@@ -90,8 +90,19 @@ struct BailianProvider: CloudProvider {
 
     func verifyAPIKey(_ key: String) async -> (isValid: Bool, errorMessage: String?) {
         do {
-            await BailianProviderHealthStore.shared.reset()
             let configuration = try BailianConfigurationStore.shared.load()
+            return await verifyAPIKey(key, configuration: configuration)
+        } catch {
+            return (false, error.localizedDescription)
+        }
+    }
+
+    func verifyAPIKey(
+        _ key: String,
+        configuration: BailianConfiguration
+    ) async -> (isValid: Bool, errorMessage: String?) {
+        do {
+            await BailianProviderHealthStore.shared.reset()
             let client = BailianBatchClient(configuration: configuration)
             _ = try await client.transcribe(
                 audioData: Self.silentWAV,

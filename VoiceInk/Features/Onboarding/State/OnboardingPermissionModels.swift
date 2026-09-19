@@ -80,7 +80,10 @@ enum OnboardingStage: String, CaseIterable {
         case .microphone:
             return String(localized: "Pick the microphone VoiceInk should use for recordings.")
         case .model:
-            return String(localized: "Use NVIDIA's Parakeet model locally, or connect a cloud transcription provider.")
+            return String(
+                localized:
+                    "Use Bailian Streaming with optional SenseVoice Small fallback, or keep recognition local-only."
+            )
         case .api:
             return String(
                 localized:

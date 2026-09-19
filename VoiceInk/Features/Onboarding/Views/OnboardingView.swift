@@ -7,13 +7,12 @@ struct OnboardingView: View {
     @EnvironmentObject var transcriptionModelManager: TranscriptionModelManager
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var enhancementService: AIEnhancementService
+    @ObservedObject private var localFallbackModelManager = TranscribeCppModelManager.shared
     @StateObject private var coordinator = OnboardingCoordinator()
     let contentMaxWidth: CGFloat = 560
 
     var body: some View {
-        let isTranscriptionModelDownloaded = coordinator.isTranscriptionModelDownloaded(
-            using: fluidAudioModelManager
-        )
+        let isTranscriptionModelDownloaded = coordinator.isTranscriptionModelDownloaded()
         let isTranscriptionSetupReady = coordinator.isTranscriptionSetupReady(
             isTranscriptionModelDownloaded: isTranscriptionModelDownloaded
         )
@@ -58,22 +57,15 @@ struct OnboardingView: View {
                         selectedProviderKey: coordinator.selectedOnboardingTranscriptionProviderKeyBinding(),
                         isLocalDownloaded: isTranscriptionModelDownloaded,
                         isLocalDownloading: coordinator.requiredTranscriptionModel.map {
-                            fluidAudioModelManager.isFluidAudioModelDownloading($0)
+                            localFallbackModelManager.isModelDownloading($0)
                         } ?? false,
                         localDownloadStatus: coordinator.requiredTranscriptionModel.flatMap {
-                            fluidAudioModelManager.downloadStatus(for: $0)
+                            localFallbackModelManager.downloadStatus(for: $0)
                         },
                         isSetupReady: isTranscriptionSetupReady,
                         onSelectSetupKind: coordinator.flow.selectOnboardingTranscriptionSetup,
-                        onDownload: {
-                            coordinator.flow.downloadTranscriptionModel(
-                                $0,
-                                modelManager: fluidAudioModelManager
-                            )
-                        },
-                        onCancelDownload: {
-                            fluidAudioModelManager.cancelDownload($0)
-                        },
+                        onDownload: coordinator.flow.downloadTranscriptionModel,
+                        onCancelDownload: TranscribeCppModelManager.shared.cancelDownload,
                         onVerificationChanged: coordinator.flow.refreshTranscriptionSetupVerification,
                         onBack: coordinator.flow.goToMicrophoneStep,
                         onContinue: {

@@ -2,16 +2,16 @@ import AppKit
 import SwiftUI
 
 struct OnboardingTranscriptionSetupCard: View {
-    let localModel: FluidAudioModel?
+    let localModel: TranscribeCppModel?
     let setupKind: OnboardingTranscriptionSetupKind
     let providerOptions: [any CloudProvider]
     @Binding var selectedProviderKey: String
     let isLocalDownloaded: Bool
     let isLocalDownloading: Bool
-    let localDownloadStatus: FluidAudioDownloadStatus?
+    let localDownloadStatus: TranscribeCppDownloadStatus?
     let onSelectSetupKind: (OnboardingTranscriptionSetupKind) -> Void
-    let onDownloadLocalModel: (FluidAudioModel) -> Void
-    let onCancelLocalModelDownload: (FluidAudioModel) -> Void
+    let onDownloadLocalModel: (TranscribeCppModel) -> Void
+    let onCancelLocalModelDownload: (TranscribeCppModel) -> Void
     let onVerificationChanged: () -> Void
 
     @EnvironmentObject private var transcriptionModelManager: TranscriptionModelManager
@@ -21,6 +21,9 @@ struct OnboardingTranscriptionSetupCard: View {
     @State private var verificationDetailMessage: String?
     @State private var verificationSucceeded = false
     @State private var isSwitchingProvider = false
+    @State private var bailianRegion: BailianRegion = .chinaNorth2
+    @State private var bailianWorkspaceID = ""
+    @State private var bailianConfigurationMessage: String?
 
     private var selectedProvider: (any CloudProvider)? {
         providerOptions.first {
@@ -34,11 +37,25 @@ struct OnboardingTranscriptionSetupCard: View {
 
     private var isSelectedProviderConnected: Bool {
         guard let selectedProvider else { return false }
-        return APIKeyManager.shared.hasAPIKey(forProvider: selectedProvider.providerKey)
+        guard APIKeyManager.shared.hasAPIKey(forProvider: selectedProvider.providerKey) else { return false }
+        if isBailian {
+            guard let saved = try? BailianConfigurationStore.shared.load() else { return false }
+            return saved.region == bailianRegion
+                && saved.workspaceID == bailianWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return true
     }
 
     private var canVerify: Bool {
-        !trimmedAPIKey.isEmpty && !isVerifying
+        !trimmedAPIKey.isEmpty && !isVerifying && (!isBailian || isBailianConfigurationValid)
+    }
+
+    private var isBailian: Bool {
+        selectedProvider?.providerKey.caseInsensitiveCompare("Bailian") == .orderedSame
+    }
+
+    private var isBailianConfigurationValid: Bool {
+        (try? BailianConfiguration(region: bailianRegion, workspaceID: bailianWorkspaceID)) != nil
     }
 
     var body: some View {
@@ -56,6 +73,7 @@ struct OnboardingTranscriptionSetupCard: View {
             if selectedProviderKey.isEmpty, let selectedProvider {
                 selectedProviderKey = selectedProvider.providerKey
             }
+            loadBailianConfiguration()
             refreshVerificationState()
         }
         .onReceive(NotificationCenter.default.publisher(for: .aiProviderKeyChanged)) { _ in
@@ -73,9 +91,20 @@ struct OnboardingTranscriptionSetupCard: View {
     }
 
     private var setupSwitcher: some View {
-        HStack(spacing: 8) {
-            setupChoice(.local, systemImage: "macbook")
-            setupChoice(.cloud, systemImage: "cloud.fill")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                setupChoice(.local, systemImage: "macbook")
+                setupChoice(.cloud, systemImage: "cloud.fill")
+            }
+
+            Text(
+                setupKind == .cloud
+                    ? "Cloud uses Streaming by default, then Batch, then SenseVoice Small when the offline fallback is installed."
+                    : "Local-only mode keeps audio and recognition context on this Mac."
+            )
+            .font(.system(size: 11))
+            .foregroundColor(AppTheme.Text.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(4)
         .background(AppMaterialCardBackground(cornerRadius: 12))
@@ -132,7 +161,7 @@ struct OnboardingTranscriptionSetupCard: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(AppTheme.Status.error)
 
-            Text("Parakeet V3 is not available.")
+            Text("SenseVoice Small is not available.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(AppTheme.Text.secondary)
 
@@ -144,17 +173,94 @@ struct OnboardingTranscriptionSetupCard: View {
 
     private var cloudSetup: some View {
         VStack(alignment: .leading, spacing: 14) {
-            providerSummary
+            VStack(alignment: .leading, spacing: 14) {
+                providerSummary
 
-            if isSelectedProviderConnected {
-                verifiedProviderSummary
-            } else {
-                apiKeyField
-                verificationFooter
+                if isBailian && !isSelectedProviderConnected {
+                    bailianWorkspaceSetup
+                }
+
+                if isSelectedProviderConnected {
+                    verifiedProviderSummary
+                } else {
+                    apiKeyField
+                    verificationFooter
+                }
+            }
+            .padding(16)
+            .background(AppMaterialCardBackground(cornerRadius: 12))
+
+            offlineFallbackSetup
+        }
+    }
+
+    @ViewBuilder
+    private var offlineFallbackSetup: some View {
+        if let localModel {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Offline fallback")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.Text.primary)
+                Text(
+                    isLocalDownloaded
+                        ? "SenseVoice Small is installed and can recover a recording when Streaming and Batch are unavailable."
+                        : "Optional now. If skipped, offline recognition and automatic local fallback will be unavailable until you install it later."
+                )
+                .font(.system(size: 11))
+                .foregroundColor(AppTheme.Text.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+                TranscriptionModelDownloadCard(
+                    model: localModel,
+                    isDownloaded: isLocalDownloaded,
+                    isDownloading: isLocalDownloading,
+                    status: localDownloadStatus,
+                    onDownload: { onDownloadLocalModel(localModel) },
+                    onCancel: { onCancelLocalModelDownload(localModel) }
+                )
             }
         }
-        .padding(16)
-        .background(AppMaterialCardBackground(cornerRadius: 12))
+    }
+
+    private var bailianWorkspaceSetup: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("Bailian workspace")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(AppTheme.Text.primary)
+
+            Picker("Region", selection: $bailianRegion) {
+                ForEach(BailianRegion.allCases, id: \.self) { region in
+                    Text(region.displayName).tag(region)
+                }
+            }
+            .pickerStyle(.menu)
+
+            TextField("Workspace ID, for example ws-xxxxxxxx", text: $bailianWorkspaceID)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .padding(.horizontal, 12)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(AppTheme.Surface.control)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(AppTheme.Border.control.opacity(0.45), lineWidth: 1)
+                )
+
+            Text("The API key and workspace must belong to the selected region. Official workspace-specific endpoints are used automatically.")
+                .font(.system(size: 11))
+                .foregroundColor(AppTheme.Text.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let bailianConfigurationMessage {
+                Text(bailianConfigurationMessage)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(AppTheme.Status.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var providerSummary: some View {
@@ -355,6 +461,7 @@ struct OnboardingTranscriptionSetupCard: View {
         apiKey = ""
         isVerifying = false
         isSwitchingProvider = false
+        loadBailianConfiguration()
         refreshVerificationState()
         onVerificationChanged()
     }
@@ -363,6 +470,22 @@ struct OnboardingTranscriptionSetupCard: View {
         let key = trimmedAPIKey
         guard let selectedProvider, !key.isEmpty else { return }
 
+        let bailianConfiguration: BailianConfiguration?
+        if isBailian {
+            do {
+                bailianConfiguration = try BailianConfiguration(
+                    region: bailianRegion,
+                    workspaceID: bailianWorkspaceID
+                )
+                bailianConfigurationMessage = nil
+            } catch {
+                bailianConfigurationMessage = error.localizedDescription
+                return
+            }
+        } else {
+            bailianConfiguration = nil
+        }
+
         isVerifying = true
         verificationMessage = nil
         verificationDetailMessage = nil
@@ -370,7 +493,15 @@ struct OnboardingTranscriptionSetupCard: View {
         let providerKey = selectedProvider.providerKey
 
         Task {
-            let result = await selectedProvider.verifyAPIKey(key)
+            let result: (isValid: Bool, errorMessage: String?)
+            if let bailianConfiguration {
+                result = await BailianProvider().verifyAPIKey(
+                    key,
+                    configuration: bailianConfiguration
+                )
+            } else {
+                result = await selectedProvider.verifyAPIKey(key)
+            }
 
             await MainActor.run {
                 isVerifying = false
@@ -391,6 +522,10 @@ struct OnboardingTranscriptionSetupCard: View {
                         verificationDetailMessage = nil
                         onVerificationChanged()
                         return
+                    }
+
+                    if let bailianConfiguration {
+                        BailianConfigurationStore.shared.save(bailianConfiguration)
                     }
 
                     transcriptionModelManager.refreshAllAvailableModels()
@@ -416,6 +551,17 @@ struct OnboardingTranscriptionSetupCard: View {
             aiProvider: nil,
             cloudProvider: provider
         )
+    }
+
+    private func loadBailianConfiguration() {
+        guard isBailian else {
+            bailianConfigurationMessage = nil
+            return
+        }
+        let draft = BailianConfigurationStore.shared.loadDraft()
+        bailianRegion = draft.region
+        bailianWorkspaceID = draft.workspaceID
+        bailianConfigurationMessage = nil
     }
 }
 
@@ -505,7 +651,8 @@ private struct TranscriptionProviderChoiceButton: View {
     }
 
     private var isRecommended: Bool {
-        provider.providerKey.caseInsensitiveCompare("AssemblyAI") == .orderedSame
+        provider.providerKey.caseInsensitiveCompare(OnboardingTranscriptionPolicy.recommendedCloudProviderKey)
+            == .orderedSame
     }
 }
 

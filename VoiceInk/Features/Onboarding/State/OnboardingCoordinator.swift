@@ -1,5 +1,21 @@
 import SwiftUI
 
+enum OnboardingTranscriptionPolicy {
+    static let localFallbackModelName = "sensevoice-small"
+    static let defaultSetupKind = OnboardingTranscriptionSetupKind.cloud
+    static let recommendedCloudProviderKey = "Bailian"
+
+    static func isProviderReady(
+        providerKey: String,
+        hasAPIKey: Bool,
+        hasValidBailianConfiguration: Bool
+    ) -> Bool {
+        guard hasAPIKey else { return false }
+        guard providerKey.caseInsensitiveCompare("Bailian") == .orderedSame else { return true }
+        return hasValidBailianConfiguration
+    }
+}
+
 @MainActor
 final class OnboardingCoordinator: ObservableObject {
     let licenseViewModel = LicenseViewModel.shared
@@ -81,7 +97,7 @@ final class OnboardingCoordinator: ObservableObject {
         self.storedTranscriptionSetupKind =
             defaults.string(
                 forKey: OnboardingStorageKeys.transcriptionSetupKind
-            ) ?? OnboardingTranscriptionSetupKind.local.rawValue
+            ) ?? OnboardingTranscriptionPolicy.defaultSetupKind.rawValue
         self.storedOnboardingTranscriptionProvider =
             defaults.string(
                 forKey: OnboardingStorageKeys.transcriptionProvider
@@ -260,11 +276,13 @@ final class OnboardingCoordinator: ObservableObject {
     }
 
     var transcriptionSetupKind: OnboardingTranscriptionSetupKind {
-        OnboardingTranscriptionSetupKind(rawValue: storedTranscriptionSetupKind) ?? .local
+        OnboardingTranscriptionSetupKind(rawValue: storedTranscriptionSetupKind)
+            ?? OnboardingTranscriptionPolicy.defaultSetupKind
     }
 
     var onboardingTranscriptionProviderOptions: [any CloudProvider] {
         let preferredOrder = [
+            OnboardingTranscriptionPolicy.recommendedCloudProviderKey,
             "AssemblyAI", "Cartesia", "Deepgram", "ElevenLabs", "Soniox",
             "Speechmatics", "xAI", "Mistral", "Groq", "Gemini",
         ]
@@ -313,7 +331,8 @@ final class OnboardingCoordinator: ObservableObject {
 
     var recommendedOnboardingTranscriptionProvider: (any CloudProvider)? {
         onboardingTranscriptionProviderOptions.first {
-            $0.providerKey.caseInsensitiveCompare("AssemblyAI") == .orderedSame
+            $0.providerKey.caseInsensitiveCompare(OnboardingTranscriptionPolicy.recommendedCloudProviderKey)
+                == .orderedSame
         }
     }
 
@@ -366,10 +385,10 @@ final class OnboardingCoordinator: ObservableObject {
         return onboardingProviderOptions.first ?? .groq
     }
 
-    var requiredTranscriptionModel: FluidAudioModel? {
+    var requiredTranscriptionModel: TranscribeCppModel? {
         TranscriptionModelRegistry.models
-            .compactMap { $0 as? FluidAudioModel }
-            .first { $0.name == "parakeet-tdt-0.6b-v3" }
+            .compactMap { $0 as? TranscribeCppModel }
+            .first { $0.name == OnboardingTranscriptionPolicy.localFallbackModelName }
     }
 
     func selectedOnboardingTranscriptionProviderKeyBinding() -> Binding<String> {
@@ -398,9 +417,9 @@ final class OnboardingCoordinator: ObservableObject {
         )
     }
 
-    func isTranscriptionModelDownloaded(using modelManager: FluidAudioModelManager) -> Bool {
+    func isTranscriptionModelDownloaded() -> Bool {
         guard let requiredTranscriptionModel else { return false }
-        return modelManager.isFluidAudioModelDownloaded(requiredTranscriptionModel)
+        return TranscribeCppModelManager.shared.isModelDownloaded(requiredTranscriptionModel)
     }
 
     func isTranscriptionSetupReady(isTranscriptionModelDownloaded: Bool) -> Bool {
@@ -408,8 +427,14 @@ final class OnboardingCoordinator: ObservableObject {
         case .local:
             return isTranscriptionModelDownloaded
         case .cloud:
-            guard selectedOnboardingTranscriptionModel != nil else { return false }
-            return isSelectedTranscriptionProviderVerified
+            guard let provider = selectedOnboardingTranscriptionProvider,
+                selectedOnboardingTranscriptionModel != nil
+            else { return false }
+            return OnboardingTranscriptionPolicy.isProviderReady(
+                providerKey: provider.providerKey,
+                hasAPIKey: isSelectedTranscriptionProviderVerified,
+                hasValidBailianConfiguration: (try? BailianConfigurationStore.shared.load()) != nil
+            )
         }
     }
 
@@ -457,9 +482,9 @@ enum OnboardingTranscriptionSetupKind: String, CaseIterable, Identifiable {
     var title: LocalizedStringKey {
         switch self {
         case .local:
-            return "Local"
+            return "Local only"
         case .cloud:
-            return "Cloud"
+            return "Cloud streaming"
         }
     }
 }

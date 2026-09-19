@@ -305,18 +305,17 @@ final class OnboardingFlowController {
     }
 
     func downloadTranscriptionModel(
-        _ model: FluidAudioModel,
-        modelManager: FluidAudioModelManager
+        _ model: TranscribeCppModel
     ) {
         guard coordinator.requiredPermissionsGranted,
             coordinator.hasSelectedOnboardingMicrophone,
-            !modelManager.isFluidAudioModelDownloaded(model),
-            !modelManager.isFluidAudioModelDownloading(model)
+            !TranscribeCppModelManager.shared.isModelDownloaded(model),
+            !TranscribeCppModelManager.shared.isModelDownloading(model)
         else {
             return
         }
 
-        modelManager.startDownload(model)
+        TranscribeCppModelManager.shared.startDownload(model)
     }
 
     func moveToExperienceStep(
@@ -386,8 +385,14 @@ final class OnboardingFlowController {
             return
         }
 
-        coordinator.isSelectedTranscriptionProviderVerified = APIKeyManager.shared.hasAPIKey(
-            forProvider: provider.providerKey
+        let hasKey = APIKeyManager.shared.hasAPIKey(forProvider: provider.providerKey)
+        let hasRequiredConfiguration =
+            provider.providerKey.caseInsensitiveCompare("Bailian") != .orderedSame
+            || (try? BailianConfigurationStore.shared.load()) != nil
+        coordinator.isSelectedTranscriptionProviderVerified = OnboardingTranscriptionPolicy.isProviderReady(
+            providerKey: provider.providerKey,
+            hasAPIKey: hasKey,
+            hasValidBailianConfiguration: hasRequiredConfiguration
         )
     }
 
