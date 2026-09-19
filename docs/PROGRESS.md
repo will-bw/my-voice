@@ -18,6 +18,8 @@
 - `make local` Release 构建成功，生成 `dist/my-voice.app`；应用已在当前 Mac 启动并进入权限引导页。
 - 在 Onboarding 模型下载中发现 FluidAudio 默认共享官方缓存路径；已改为本地构建专属的 `com.will.myvoice/FluidAudio/Models`，并完成第二次 Release 构建。
 - 通过 Xcode Personal Team 创建 Apple Development 证书，补齐 Apple WWDR G3 中间证书，并修复 `LocalBuild.xcconfig` 对上游 SDK 条件签名设置的覆盖；`make local` 现可使用稳定签名身份。
+- 稳定签名产物启动后，麦克风与 Accessibility 均显示已授权；完成 Parakeet V3 首次下载与应用内校验，模型仅写入本地隔离目录。
+- Onboarding 已设置全局快捷键为 `Control + Option + Space`，当前停在真实听写体验页，等待用户提供真实语音完成最后交互验收。
 
 ## 验证命令与结果
 
@@ -53,12 +55,15 @@
 | 稳定签名 `make local LOCAL_CODESIGN_IDENTITY=…` | 通过：`** BUILD SUCCEEDED **`；主 App、XPC 与嵌套代码使用 Apple Development 身份 |
 | `codesign --verify --deep --strict --verbose=4 dist/my-voice.app` | 通过；TeamIdentifier `22ABMXL88T`，指定要求基于 Apple 证书链与 Bundle ID，不再绑定 cdhash |
 | `spctl --assess --type execute` | 拒绝；符合未公证 Apple Development 本机开发构建的预期，不作为发布包 |
+| 稳定签名产物权限页 | 麦克风与 Accessibility 均显示“已授权”，“继续”可用 |
+| Parakeet V3 首次下载 | 通过：约 494 MB，应用显示“已下载”；文件位于 `~/Library/Application Support/com.will.myvoice/FluidAudio/Models` |
+| 下载期间网络观察 | VoiceInk 仅连接本机代理 `127.0.0.1:7890`；未观察到官方更新或 License 端点 |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。
 
 ## 剩余工作
 
-- 由用户为首次稳定签名产物在 macOS 系统设置中授权 Accessibility；随后再次重建并复核授权是否保持稳定。
+- 用同一 Apple Development 身份再次重建，并复核麦克风与 Accessibility 授权是否保持稳定。
 - 在当前 Mac 完成全局快捷键、焦点恢复、跨应用文本投递和 SenseVoice Small 的真实验证。
 - 运行期间复核不会连接官方更新/License 服务，并确认本地数据目录在完成 Onboarding 后与官方 VoiceInk 隔离。
 - 检查点 A 验收通过后再开始 B1，并在实现当天重新核对百炼官方 Streaming、Batch、即时热词和上下文协议。
@@ -69,6 +74,6 @@
 
 ## 当前需交互验证
 
-- 已从 ad-hoc 切换到稳定 Apple Development 身份；应用需为该新身份完成一次 Accessibility 授权，之后用同一身份重建并验证权限保持。
-- 授权后仍需完成全局快捷键、跨应用投递和 SenseVoice Small 的真实验证，检查点 A 尚未验收完成。
+- 稳定签名身份的麦克风与 Accessibility 已授权；自动化生成的按键事件不会触发应用的全局快捷键监听，需要用户亲自按 `Control + Option + Space`、说一句话、再按一次完成真实听写。
+- 完成 Onboarding 后仍需验证跨应用投递和 SenseVoice Small，检查点 A 尚未验收完成。
 - 首次 Parakeet 下载被隔离审计主动停止；共享 `~/Library/Application Support/FluidAudio` 中约 13 MB 的部分下载未自动删除，避免误删既有用户数据。
