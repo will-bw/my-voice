@@ -46,6 +46,8 @@
 - 完成 Chrome 与 VS Code 真人 Streaming 投递：Chrome 由用户确认完整显示“今天下午3点提交MyVoice项目报告。”；VS Code 焦点与单次 final 投递通过，但实际识别为“今天下午3点提交MyVoice小鹏报告。”，保留“项目”→“小鹏”误差证据。
 - 使用进程级临时无法连接端点完成两级真实故障回退：单独中断 Streaming 时成功走 `batch-fallback`；同时中断 Streaming/Batch 时成功走 `local-fallback` 到 SenseVoice Small。两次均只投递一次，焦点正确，会话 WAV 均已清理；测试后删除临时端点并重启恢复默认 Streaming。
 - 真实回退日志暴露了一次 SwiftData 主线程 `ModelContext` 被异步 Provider 访问的运行时告警。云端转写现优先复用已捕获的不可变词表快照；只有无快照的旧 Provider 路径才在 `MainActor` 读取词库，避免跨执行器使用主 context。
+- Streaming 时序增加隐私安全的直接观测：只在首次向 HUD 发出非空文本时记录会话启动至首个可见文本的秒数与字符数，空 partial/commit 不再冒充首字；停止路径继续直接记录松键至 final 完成的 tail，不记录正文。
+- 使用新仪器在 TextEdit 完成真人短句：实际一次写入“今天下午3点提交MyVoice项目报告。”，首个可见文本 1.008 s，松键到 final 0.115 s，679/679 音频块全部发送、0 丢弃；Provider `Bailian`、路径 `streaming`，7.214 s 音频，总处理 0.141 s。该首字单样本高于 0.8 s 目标，不能以一个样本推断 P50。
 - 首次引导的本地模式和云端离线兜底统一为 SenseVoice Small；云端模式可跳过安装，但会明确说明离线识别和自动本地回退不可用。
 
 ## 验证命令与结果
@@ -109,6 +111,8 @@
 | 回退恢复与临时音频清理 | 通过：两个临时高级端点键均已删除，签名应用已重启；两个会话 UUID 对应的 WAV 均无残留 |
 | SwiftData 并发告警修复后完整回归 | 通过：53 个 XCTest 全部成功；修复不改变 Streaming/Batch 共享的 `RecognitionHintSnapshot` |
 | 修复后稳定签名 Release | 通过：`make local`、`codesign --verify --deep --strict`、`make verify-local-isolation`均成功；Bundle ID `com.will.myvoice.VoiceInk`、TeamIdentifier `22ABMXL88T`，新产物已启动且 Dictation 仍为 Bailian Streaming |
+| Streaming 直接时序仪器化后完整回归 | 通过：53 个 XCTest 全部成功；Release 构建、深度签名与本地隔离校验通过，新产物已启动且 Dictation 仍为 Bailian Streaming |
+| Streaming→TextEdit 首字/final tail 真人短句 | 识别与投递通过：首个可见非空文本 1.008 s、松键到 final 0.115 s；7.214 s 音频，Streaming 转写 0.116 s、总处理 0.141 s；Provider `Bailian`、路径 `streaming`，679/679 音频块发送、0 丢弃，完整 final 一次写入 |
 | `PYTHONDONTWRITEBYTECODE=1 python -m unittest scripts.tests.test_evaluate_corpus` | 通过：4 个工具测试；验证真实音频、100 条/50 条实体门槛、重复/空成功结果/无效数值拒绝，以及同 Provider 三实验臂完整覆盖门槛 |
 | D `make local` | 通过：`** BUILD SUCCEEDED **`；Apple Development 稳定签名 Release 产物启动成功 |
 | D 真实 store 启动迁移 | 通过：新增 `ZSESSIONDIAGNOSTICMETRIC`，迁移后初始记录 0；三类 store 已备份到 `MigrationBackups/D-20260919-163812` |
@@ -152,7 +156,8 @@
 - 每次完成结果保存实际识别路径和实际模型；Batch/本地回退会显示明确通知，History Info 可查看 Recognition Path。
 - Provider Health 在进程内共享；已知无效凭证或配置不会反复发起网络请求，配置或 API Key 改变时重置。
 - B1/B2 Mock XCTest 共 21 个，新增覆盖 Streaming 成功、Batch 回退、本地回退、取消禁止回退、无语音禁止回退和累积 committed 合并。
-- 已完成 TextEdit、Chrome 与 VS Code 真实 Streaming/final 投递，以及 `Streaming → Batch → SenseVoice Small` 两级真实故障回退。目标输入框只接收一次 final，回退后无会话 WAV 残留；仍待直接量化 HUD 首个可见 partial 与松键到 final 时序。
+- 已完成 TextEdit、Chrome 与 VS Code 真实 Streaming/final 投递，以及 `Streaming → Batch → SenseVoice Small` 两级真实故障回退。目标输入框只接收一次 final，回退后无会话 WAV 残留。
+- HUD 首个可见非空文本和松键到 final 已建立直接时间戳：最新真人样本分别为 1.008 s 与 0.115 s；此前三个真人 Streaming 会话的 final tail 为 0.065/0.261/0.082 s。现有 tail 探索样本范围为 0.065～0.261 s（n=4），仍不能代替个人语料上的正式 P50/P95。
 
 ## B3 进展
 
@@ -194,7 +199,7 @@
 ## 当前精确阻塞项
 
 - 完整 100 条 A/B、SenseVoice/Whisper 对照和参数冻结需要用户个人录音、人工真值、至少 50 条实体标注及最终修改文本。
-- HUD 首个可见 partial 和松键到 final tail 尚未建立可重复的直接时间戳量测；已有的转写/总处理耗时不冒充这两项指标。
+- HUD 首个可见非空文本和松键到 final tail 已能直接量测；当前只有 1 个首字样本和 4 个 tail 探索样本，仍需个人语料的足量重复会话才能形成可信 P50/P95。首字单样本 1.008 s 高于 0.8 s 目标，暂不判定总体达标或失败。
 - 连续 100 次个人短句和 30 分钟间歇使用内存增长仍需结合个人语料执行，不能由合成或静音样本冒充；纯空闲 30 分钟采样已完成。
 
 ## Goal 完成条件审计
@@ -206,7 +211,7 @@
 | 3 | 已满足 | 签名 Release 可构建、启动；SenseVoice、百炼 Streaming/Batch 以及 TextEdit、Chrome、VS Code 跨应用输入均已完成真人验收。 |
 | 4 | 已满足 | Streaming、Batch 和 SenseVoice 真实路径均已通过；两级故障回退真实触发，焦点正确、每次只投递一个 final，对应会话临时 WAV 无残留。 |
 | 5 | 实现已满足，实测部分满足 | 动态热词、上下文隐私、录音历史、安全学习和脱敏指标均有实现与专项测试；真实云请求中的提示效果及真实人工纠错仍待个人样例。 |
-| 6 | 部分满足 | 空闲 CPU/RSS、启动与本地识别样本已测；Streaming 首字、final tail、连续听写成功率和间歇使用增长未测。 |
+| 6 | 部分满足 | 空闲 CPU/RSS、启动与本地识别样本已测；Streaming 首个可见文本和 final tail 已建立直接量测并取得真人探索样本，但正式 P50/P95、连续听写成功率和间歇使用增长仍缺个人语料规模验证。 |
 | 7 | 部分满足 | 100 条/50 条实体标注的工具和格式完整；尚未提供真实个人语料，因此没有生成或伪造 CER、实体指标、误吸附率和最终修改率。 |
 | 8 | 当前文档已对齐，最终审计待完成 | README、REQUIREMENTS、DEVELOPMENT、PROGRESS、UPSTREAM 已按当前实现更新；真实数据完成后仍需再次核对。 |
 | 9 | 当前满足 | 当前 Git 工作区仅包含本轮已解释的文档更新；构建产物、模型、私有语料和结果均由忽略规则隔离，未配置 Git 远程。 |
@@ -221,5 +226,5 @@
 ## 后续需交互验证
 
 - 后续代码变更使用同一 Apple Development 身份重建后，复核麦克风与 Accessibility 授权保持稳定。
-- B2 的 TextEdit、Chrome、VS Code 真实跨应用 Streaming/final 投递与两级回退已完成；后续仅需在时序仪器化中补齐首个可见 partial 和 final tail 的直接测量。
+- B2 的 TextEdit、Chrome、VS Code 真实跨应用 Streaming/final 投递、两级回退，以及首个可见非空文本/final tail 的直接时序量测均已完成；后续仍需个人语料规模的 P50/P95、连续 100 次与间歇使用稳定性验证。
 - 首次 Parakeet 下载被隔离审计主动停止；共享 `~/Library/Application Support/FluidAudio` 中约 13 MB 的部分下载未自动删除，避免误删既有用户数据。

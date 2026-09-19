@@ -196,9 +196,11 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
     private var onPartialTranscript: ((String) -> Void)?
     private let metrics = StreamingMetrics()
     private let failureState = StreamingFailureState()
+    private var streamingStartedAt: Date?
     private var stopStartedAt: Date?
     private var firstPartialLogged = false
     private var firstCommitLogged = false
+    private var firstVisibleTranscriptLogged = false
 
     init(
         modelContext: ModelContext, fluidAudioService: FluidAudioTranscriptionService? = nil,
@@ -226,10 +228,13 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
     /// Start a streaming transcription session for the given model.
     func startStreaming(model: any TranscriptionModel, context: TranscriptionRequestContext) async throws {
         let start = Date()
+        streamingStartedAt = start
+        stopStartedAt = nil
         state = .connecting
         committedSegments = []
         firstPartialLogged = false
         firstCommitLogged = false
+        firstVisibleTranscriptLogged = false
 
         let provider = createProvider(for: model)
         self.provider = provider
@@ -468,7 +473,7 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
                         // Refresh the live preview so it keeps showing the full running transcript
                         // after a commit (instead of resetting to empty until the next partial).
                         if self.state == .streaming {
-                            self.onPartialTranscript?(self.committedSegments.joined(separator: " "))
+                            self.emitLiveTranscript(self.committedSegments.joined(separator: " "))
                         }
                         if self.state == .committing {
                             self.commitSignal?.yield()
@@ -491,7 +496,7 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
                             } else {
                                 display = prefix + " " + text
                             }
-                            self.onPartialTranscript?(display)
+                            self.emitLiveTranscript(display)
                         }
                     }
                 case .sessionStarted:
@@ -566,6 +571,19 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
         return (result.0, result.1)
     }
 
+    private func emitLiveTranscript(_ text: String) {
+        if !firstVisibleTranscriptLogged,
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            firstVisibleTranscriptLogged = true
+            let elapsed = streamingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+            logger.notice(
+                "Streaming first visible transcript elapsed=\(elapsed, format: .fixed(precision: 3), privacy: .public)s chars=\(text.count, privacy: .public)"
+            )
+        }
+        onPartialTranscript?(text)
+    }
+
     private func cleanupStreaming() async {
         onPartialTranscript = nil
         eventConsumerTask?.cancel()
@@ -579,5 +597,7 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
         provider = nil
         state = .idle
         committedSegments = []
+        streamingStartedAt = nil
+        stopStartedAt = nil
     }
 }
