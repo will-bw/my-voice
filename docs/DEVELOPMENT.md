@@ -2,13 +2,13 @@
 
 - 文档版本：v0.1
 - 日期：2026-09-19
-- 状态：设计基线，尚未开始编码
+- 状态：设计基线已实施；A～D 的非凭证功能已完成，真实百炼与个人语料验收状态见 [PROGRESS.md](PROGRESS.md)
 - 对应需求：[REQUIREMENTS.md](REQUIREMENTS.md) v0.2
 - 上游审计基线：VoiceInk [`cd1d96f`](https://github.com/Beingpax/VoiceInk/commit/cd1d96f182b03561f5ef66c6a91e511cd7409c4c)
 
 ## 1. 文档目的
 
-本文把已确认的产品需求转换为可实施的技术方案，用于指导后续源码导入、模块开发、测试和验收。本文只定义设计，不包含 Swift 实现代码，也不代表已经完成任何接口接入。
+本文把已确认的产品需求转换为技术方案，并作为源码导入、模块开发、测试和验收的设计基线。本文本身不包含 Swift 实现代码；当前实现证据、实测边界和外部输入阻塞项统一记录在 [PROGRESS.md](PROGRESS.md)。
 
 本文重点回答：
 
@@ -67,27 +67,26 @@ Streaming partial 只显示在 Floating HUD。MVP 在收到完整 final 后一�
 | 历史与清理 | `Features/History/`、`Persistence/Cleanup/` | 增加录音保留策略 |
 | 指标 | `SessionMetric.swift`、`SessionMetricRecorder.swift` | 增加 Provider 路径和阶段耗时 |
 
-### 3.2 计划新增的模块
+### 3.2 已实现的新增模块
 
-以下名称是计划落点，源码导入后可根据上游实际命名做小幅调整：
+下表记录设计名称与当前实际落点；与最初建议不同的部分明确列出，避免把设计草案路径误当成现状：
 
-| 模块 | 建议位置 | 职责 |
+| 模块 | 当前实际位置 | 职责 |
 |---|---|---|
-| `BailianProvider` | `Infrastructure/Providers/Transcription/Cloud/` | 百炼 Batch 请求、响应和鉴权验证 |
-| `BailianStreamingProvider` | `Infrastructure/Providers/Transcription/Cloud/Streaming/` | WebSocket 生命周期与 VoiceInk 流式事件映射 |
-| `BailianWebSocketClient` | 同上或 `Bailian/` 子目录 | 协议帧、二进制音频发送、服务端事件解析 |
-| `RecognitionHintBuilder` | `Features/Recording/Context/` | 合并热词、语言提示和最小上下文 |
-| `HotwordSelector` | `Features/Dictionary/Selection/` | 候选生成、规则打分、去重和 Top-K |
-| `ContextPrivacyPolicy` | `Features/Recording/Context/` | 安全控件检查、拒绝列表、裁剪与审计摘要 |
-| `FailoverCoordinator` | `Features/Recording/Workflows/` | Streaming、Batch、本地模型的单次回退决策 |
-| `RecognitionAttemptMetadata` | `Infrastructure/Persistence/Models/` | 只保存脱敏路径、耗时和错误分类 |
-| `AdaptiveTermMetadata` | `Infrastructure/Persistence/Models/` | 保存词条的场景、使用和反馈信号 |
-| `CorrectionFeedbackMetadata` | `Infrastructure/Persistence/Models/` | 保存纠错规则的接受、撤销和误触发信息 |
-| `RecordingRetentionPolicy` | `Infrastructure/Persistence/Cleanup/` | 原始录音开关、时长/容量上限和清理 |
+| `BailianProvider` / `BailianBatchClient` | `Infrastructure/Providers/Transcription/Cloud/Bailian/` | 百炼 Batch 请求、响应和鉴权验证 |
+| `BailianStreamingProvider` / `BailianStreamingSession` | `Infrastructure/Providers/Transcription/Cloud/Bailian/` | WebSocket 生命周期、协议帧和 VoiceInk 流式事件映射 |
+| `RecognitionHintSnapshotBuilder` | `Features/Recording/Context/RecognitionHintSnapshot.swift` | 合并热词、语言提示和最小上下文，生成不可变会话快照 |
+| `HotwordSelector` | `Features/Recording/Context/RecognitionHintSnapshot.swift` | 候选生成、规则打分、去重和 Top-K |
+| `ContextPrivacyPolicy` | `Features/Recording/Context/RecognitionHintSnapshot.swift` | 安全控件检查、拒绝列表、裁剪与审计摘要 |
+| `TranscriptionSession` 内的回退编排 | `Features/Recording/Workflows/TranscriptionSession.swift` | Streaming、Batch、本地模型的单次回退决策 |
+| `SessionDiagnosticMetric` | `Infrastructure/Persistence/Models/SessionDiagnosticMetric.swift` | 只保存脱敏路径、耗时和错误分类 |
+| `AdaptiveTermMetadata` | `Infrastructure/Persistence/Models/AdaptiveTermMetadata.swift` | 保存词条的场景、使用和反馈信号 |
+| `CorrectionFeedbackMetadata` | `Infrastructure/Persistence/Models/CorrectionFeedbackMetadata.swift` | 保存纠错规则的接受、撤销和误触发信息 |
+| `AudioHistorySettings` / `AudioHistoryCleanupPlanner` | `App/Configuration/AppDefaults.swift`、`Infrastructure/Persistence/Cleanup/AudioCleanupManager.swift` | 原始录音开关、时长/容量上限和清理 |
 
-### 3.3 预计修改的上游文件
+### 3.3 已完成的上游接入点
 
-| 上游文件或目录 | 预计最小改动 |
+| 上游文件或目录 | 已完成改动 |
 |---|---|
 | `TranscriptionModel.swift` | 增加百炼 Provider 标识与云模型描述 |
 | `TranscriptionModelRegistry.swift` | 注册 Streaming 和 Batch 模型 |
@@ -101,7 +100,7 @@ Streaming partial 只显示在 Floating HUD。MVP 在收到完整 final 后一�
 | Provider 设置与 Onboarding | 增加地域、凭证、默认模式和 SenseVoice 安装入口 |
 | History 与 Cleanup | 落实原始录音默认关闭和双阈值清理 |
 
-上述改动应保持小而可审查。若某项可以通过新模块和组合完成，不应为了方便而扩大对上游核心文件的修改。
+上述改动保持小而可审查；能够通过新模块和组合完成的能力没有为方便而扩大到无关上游核心文件。
 
 ### 3.4 不新增的组件
 
@@ -849,14 +848,14 @@ HUD 不显示 API Key、完整上下文或完整热词列表。
 
 ## 21. Git 与上游管理
 
-### 21.1 初次导入建议
+### 21.1 已完成的初次导入历史
 
-当前仓库已经本地初始化，但没有提交和远程。实施时建议按以下逻辑组织历史：
+当前仓库仍未配置远程；初次导入已经按以下顺序形成可回滚的本地历史：
 
-1. 先提交当前需求与开发设计，形成项目决策基线。
-2. 将 VoiceInk 固定提交的源码快照导入为独立提交，不携带上游 `.git`。
-3. 增加 `UPSTREAM.md`，记录仓库 URL、提交 SHA、导入日期、许可证和本地构建差异。
-4. 业务改造按模块分提交，避免将大规模格式化与功能改动混在一起。
+1. `b235afd`：提交需求与开发设计，形成项目决策基线。
+2. `d99c4dd`：将 VoiceInk 固定提交的源码快照独立导入，不携带上游 `.git`。
+3. `ab9dd37` 起：增加 `UPSTREAM.md` 并完成本地构建、身份与数据隔离。
+4. `8eda565` 至 `30a2d9f`：按 Provider、流式回退、动态提示、安全学习、历史指标和引导流程分模块提交，没有混入全仓格式化。
 
 本文不授权添加远程、推送或创建发布；这些操作需要后续明确决定。
 
@@ -884,18 +883,18 @@ HUD 不显示 API Key、完整上下文或完整热词列表。
 | 原始录音占满磁盘 | 系统空间风险 | 默认关闭、7 天/1 GB 双阈值、立即清空 |
 | 日志泄露敏感内容 | 隐私风险 | 字段白名单和脱敏测试 |
 
-## 23. 开始编码前检查表
+## 23. 基线与外部输入检查表
 
-- [ ] 用户确认需求文档 v0.2 和本文设计基线。
-- [ ] 当前文档先形成独立本地提交。
-- [ ] 再次验证 VoiceInk 固定提交可获取且 LICENSE 未变化。
-- [ ] 在目标 Mac 上记录 Xcode、macOS 和芯片信息。
+- [x] 需求文档 v0.2 和本文设计基线已作为 Goal 的实施约束。
+- [x] 当前文档先形成独立本地提交。
+- [x] 再次验证 VoiceInk 固定提交可获取且 LICENSE 未变化。
+- [x] 在目标 Mac 上记录 Xcode、macOS 和芯片信息。
 - [ ] 取得普通百炼按量 API Key，并确认地域。
 - [x] 实现当天重新核对百炼 Streaming、Batch、热词和上下文官方协议。
 - [x] 明确 Mock Server 测试边界，真实 Key 不进入仓库。
 - [ ] 准备首批 20 条冒烟语料和后续 100 条完整评测语料。
-- [ ] 确认原始录音历史默认关闭。
-- [ ] 确认不添加远程、不推送、不发布，除非收到新的明确授权。
+- [x] 确认原始录音历史默认关闭。
+- [x] 确认不添加远程、不推送、不发布，除非收到新的明确授权。
 
 ## 24. 参考资料
 
