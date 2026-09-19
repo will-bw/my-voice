@@ -54,6 +54,15 @@ class CloudTranscriptionService: TranscriptionService {
         let fileName = audioURL.lastPathComponent
         let language = selectedLanguage(from: context)
         let timeout = CloudTranscriptionSettings.timeout
+        let customVocabulary: [String]
+        if let recognitionHints = context.recognitionHints {
+            // Bailian already carries the immutable, request-scoped vocabulary snapshot.
+            // Reuse it instead of touching the main-context SwiftData store from this
+            // asynchronous provider call.
+            customVocabulary = Array(recognitionHints.vocabulary.keys)
+        } else {
+            customVocabulary = await MainActor.run { self.getCustomDictionaryTerms() }
+        }
 
         do {
             if model.provider == .custom {
@@ -74,7 +83,7 @@ class CloudTranscriptionService: TranscriptionService {
                     fileName: fileName,
                     apiKey: apiKey,
                     language: language,
-                    customVocabulary: getCustomDictionaryTerms(),
+                    customVocabulary: customVocabulary,
                     recognitionHints: context.recognitionHints,
                     timeout: timeout
                 )
@@ -85,7 +94,7 @@ class CloudTranscriptionService: TranscriptionService {
                 apiKey: apiKey,
                 model: model.name,
                 language: language,
-                customVocabulary: getCustomDictionaryTerms(),
+                customVocabulary: customVocabulary,
                 timeout: timeout
             )
         } catch let error as CloudTranscriptionError {

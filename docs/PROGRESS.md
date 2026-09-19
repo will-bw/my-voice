@@ -1,6 +1,6 @@
 # my-voice 开发进度
 
-- 当前检查点：B1 的真实连接、Streaming 与 Batch 基础端到端已验收；A/C 已验收，B2/B3/D 的真实回退、跨应用覆盖和个人语料实测继续进行
+- 当前检查点：A/B1/C 已验收；B2 的真实两级回退与 TextEdit/Chrome/VS Code 跨应用投递已验收，B3/D 的个人语料与实测指标继续进行
 - 状态：53 个 XCTest + 4 个 Python 工具测试通过；首次引导、精确流式背压、隐私控制、脱敏诊断包、历史清理和严格语料评测框架已完成
 - 更新日期：2026-09-19
 
@@ -43,6 +43,9 @@
 - 修复真实设置页连接验证的 HTTP 400：旧实现向 Batch 发送 100 ms 全静音 WAV，百炼会将其判为静音或有效音频过短；现改为建立默认 Streaming 会话并等待 `task-started`，成功后立即关闭且不发送任何音频。新增成功/鉴权失败两条 Mock 回归测试，错误信息继续脱敏。
 - 使用用户在应用内输入的北京地域 Workspace 与普通按量 API Key 完成真实 Streaming 握手验证；Workspace 写入应用配置，Key 只写入独立的本机 Keychain 项，仓库与诊断记录均不包含密钥。
 - 在 TextEdit 中完成真人百炼 Streaming 与 Batch 各一次端到端验收；两次均一次性写入完整 final“今天下午3点提交MyVoice项目报告。”，无重复文本，实际 Provider 均为 Bailian，且未发生回退。验收后已恢复 Streaming 为默认 Dictation 模型。
+- 完成 Chrome 与 VS Code 真人 Streaming 投递：Chrome 由用户确认完整显示“今天下午3点提交MyVoice项目报告。”；VS Code 焦点与单次 final 投递通过，但实际识别为“今天下午3点提交MyVoice小鹏报告。”，保留“项目”→“小鹏”误差证据。
+- 使用进程级临时无法连接端点完成两级真实故障回退：单独中断 Streaming 时成功走 `batch-fallback`；同时中断 Streaming/Batch 时成功走 `local-fallback` 到 SenseVoice Small。两次均只投递一次，焦点正确，会话 WAV 均已清理；测试后删除临时端点并重启恢复默认 Streaming。
+- 真实回退日志暴露了一次 SwiftData 主线程 `ModelContext` 被异步 Provider 访问的运行时告警。云端转写现优先复用已捕获的不可变词表快照；只有无快照的旧 Provider 路径才在 `MainActor` 读取词库，避免跨执行器使用主 context。
 - 首次引导的本地模式和云端离线兜底统一为 SenseVoice Small；云端模式可跳过安装，但会明确说明离线识别和自动本地回退不可用。
 
 ## 验证命令与结果
@@ -99,6 +102,13 @@
 | 百炼真实连接验证 | 通过：设置页显示“已验证/密钥已验证”，Streaming 与 Batch 模型均可用；Keychain 项与 Workspace 配置存在，未读取或输出 Key 内容 |
 | 百炼 Streaming→TextEdit 真人短句 | 通过：7.246 s 音频，Streaming 转写阶段 0.065 s，总处理 0.113 s；实际 Provider `Bailian`、路径 `streaming`、无回退；完整 final 一次写入 |
 | 百炼 Batch→TextEdit 真人短句 | 通过：4.282 s 音频，Batch 转写 0.845 s，总处理 0.861 s；实际 Provider `Bailian`、路径 `selected-model`、无回退；完整 final 一次写入 |
+| 百炼 Streaming→Chrome 真人短句 | 通过：7.193 s 音频，转写 0.261 s，总处理 0.279 s；Provider `Bailian`、路径 `streaming`；因浏览器安全策略无法由自动化读取 `data:` 页面，完整文本由用户现场确认 |
+| 百炼 Streaming→VS Code 真人短句 | 投递通过、识别有误：8.967 s 音频，转写 0.083 s，总处理 0.093 s；Provider `Bailian`、路径 `streaming`；一次写入“今天下午3点提交MyVoice小鹏报告。”，未把准确性误差记为通过 |
+| 真实 Streaming→Batch 回退 | 通过：故意将 WebSocket 指向无法连接的本机端口；8.181 s 音频，Batch 转写 1.025 s，总处理 1.066 s；Provider `Bailian`、路径 `batch-fallback`，完整 final 一次写入 |
+| 真实 Streaming→Batch→SenseVoice Small 回退 | 链路通过、识别有误：同时中断 WebSocket/HTTP；5.015 s 音频，本地转写 0.156 s，总处理 0.173 s；Provider `TranscribeCpp`、路径 `local-fallback`，一次写入“今天下午3点提交my voiceice项目报告。” |
+| 回退恢复与临时音频清理 | 通过：两个临时高级端点键均已删除，签名应用已重启；两个会话 UUID 对应的 WAV 均无残留 |
+| SwiftData 并发告警修复后完整回归 | 通过：53 个 XCTest 全部成功；修复不改变 Streaming/Batch 共享的 `RecognitionHintSnapshot` |
+| 修复后稳定签名 Release | 通过：`make local`、`codesign --verify --deep --strict`、`make verify-local-isolation`均成功；Bundle ID `com.will.myvoice.VoiceInk`、TeamIdentifier `22ABMXL88T`，新产物已启动且 Dictation 仍为 Bailian Streaming |
 | `PYTHONDONTWRITEBYTECODE=1 python -m unittest scripts.tests.test_evaluate_corpus` | 通过：4 个工具测试；验证真实音频、100 条/50 条实体门槛、重复/空成功结果/无效数值拒绝，以及同 Provider 三实验臂完整覆盖门槛 |
 | D `make local` | 通过：`** BUILD SUCCEEDED **`；Apple Development 稳定签名 Release 产物启动成功 |
 | D 真实 store 启动迁移 | 通过：新增 `ZSESSIONDIAGNOSTICMETRIC`，迁移后初始记录 0；三类 store 已备份到 `MigrationBackups/D-20260919-163812` |
@@ -142,7 +152,7 @@
 - 每次完成结果保存实际识别路径和实际模型；Batch/本地回退会显示明确通知，History Info 可查看 Recognition Path。
 - Provider Health 在进程内共享；已知无效凭证或配置不会反复发起网络请求，配置或 API Key 改变时重置。
 - B1/B2 Mock XCTest 共 21 个，新增覆盖 Streaming 成功、Batch 回退、本地回退、取消禁止回退、无语音禁止回退和累积 committed 合并。
-- 已完成 TextEdit 的真实 Streaming final 与 Batch final 投递；仍待浏览器/代码编辑器、可见 partial 时序以及 Streaming→Batch→SenseVoice 真实故障回退验收。
+- 已完成 TextEdit、Chrome 与 VS Code 真实 Streaming/final 投递，以及 `Streaming → Batch → SenseVoice Small` 两级真实故障回退。目标输入框只接收一次 final，回退后无会话 WAV 残留；仍待直接量化 HUD 首个可见 partial 与松键到 final 时序。
 
 ## B3 进展
 
@@ -184,7 +194,7 @@
 ## 当前精确阻塞项
 
 - 完整 100 条 A/B、SenseVoice/Whisper 对照和参数冻结需要用户个人录音、人工真值、至少 50 条实体标注及最终修改文本。
-- 浏览器与 VS Code 的真实 Streaming partial/final、焦点恢复和分级回退仍待交互验收；TextEdit 的 Streaming、Batch 和 SenseVoice 基础路径已分别通过。
+- HUD 首个可见 partial 和松键到 final tail 尚未建立可重复的直接时间戳量测；已有的转写/总处理耗时不冒充这两项指标。
 - 连续 100 次个人短句和 30 分钟间歇使用内存增长仍需结合个人语料执行，不能由合成或静音样本冒充；纯空闲 30 分钟采样已完成。
 
 ## Goal 完成条件审计
@@ -192,9 +202,9 @@
 | # | 当前结论 | 权威证据与缺口 |
 |---|---|---|
 | 1 | 部分满足 | A～D 的非凭证功能已经实现；D 的个人数据参数冻结以及 SenseVoice/Whisper 同语料结论仍缺失。 |
-| 2 | 部分满足 | 53 个 XCTest 与 4 个 Python 工具测试通过，真实百炼 Streaming/Batch 基础端到端也已人工通过；真实故障回退、个人语料和连续听写仍不是自动化测试能够证明的范围。 |
-| 3 | 部分满足 | 签名 Release 可构建、启动；SenseVoice、百炼 Streaming 与百炼 Batch 到 TextEdit 的跨应用输入均通过，浏览器和代码编辑器路径仍待验收。 |
-| 4 | 部分满足 | 三条独立真实路径均已通过，Mock 已覆盖三级回退、重复事件和清理；仍需真实触发 Streaming→Batch→SenseVoice 故障回退，验证无重复投递与残留临时音频。 |
+| 2 | 部分满足 | 53 个 XCTest 与 4 个 Python 工具测试通过，真实百炼 Streaming/Batch 基础端到端和两级故障回退也已人工通过；个人语料和连续听写仍不是自动化测试能够证明的范围。 |
+| 3 | 已满足 | 签名 Release 可构建、启动；SenseVoice、百炼 Streaming/Batch 以及 TextEdit、Chrome、VS Code 跨应用输入均已完成真人验收。 |
+| 4 | 已满足 | Streaming、Batch 和 SenseVoice 真实路径均已通过；两级故障回退真实触发，焦点正确、每次只投递一个 final，对应会话临时 WAV 无残留。 |
 | 5 | 实现已满足，实测部分满足 | 动态热词、上下文隐私、录音历史、安全学习和脱敏指标均有实现与专项测试；真实云请求中的提示效果及真实人工纠错仍待个人样例。 |
 | 6 | 部分满足 | 空闲 CPU/RSS、启动与本地识别样本已测；Streaming 首字、final tail、连续听写成功率和间歇使用增长未测。 |
 | 7 | 部分满足 | 100 条/50 条实体标注的工具和格式完整；尚未提供真实个人语料，因此没有生成或伪造 CER、实体指标、误吸附率和最终修改率。 |
@@ -211,5 +221,5 @@
 ## 后续需交互验证
 
 - 后续代码变更使用同一 Apple Development 身份重建后，复核麦克风与 Accessibility 授权保持稳定。
-- B2 需要继续覆盖浏览器与代码编辑器的真实跨应用 Streaming/final 投递；本次 A 已完成 TextEdit 基线路径。
+- B2 的 TextEdit、Chrome、VS Code 真实跨应用 Streaming/final 投递与两级回退已完成；后续仅需在时序仪器化中补齐首个可见 partial 和 final tail 的直接测量。
 - 首次 Parakeet 下载被隔离审计主动停止；共享 `~/Library/Application Support/FluidAudio` 中约 13 MB 的部分下载未自动删除，避免误删既有用户数据。
