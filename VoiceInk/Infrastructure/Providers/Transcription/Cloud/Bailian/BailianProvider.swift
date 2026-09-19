@@ -101,23 +101,37 @@ struct BailianProvider: CloudProvider {
         _ key: String,
         configuration: BailianConfiguration
     ) async -> (isValid: Bool, errorMessage: String?) {
+        await verifyAPIKey(
+            key,
+            configuration: configuration,
+            transport: BailianURLSessionWebSocketTransport(),
+            healthStore: .shared
+        )
+    }
+
+    func verifyAPIKey(
+        _ key: String,
+        configuration: BailianConfiguration,
+        transport: any BailianWebSocketTransport,
+        healthStore: BailianProviderHealthStore,
+        timeout: Duration = .seconds(15)
+    ) async -> (isValid: Bool, errorMessage: String?) {
+        let session = BailianStreamingSession(
+            configuration: configuration,
+            transport: transport,
+            healthStore: healthStore
+        )
         do {
-            await BailianProviderHealthStore.shared.reset()
-            let client = BailianBatchClient(configuration: configuration)
-            _ = try await client.transcribe(
-                audioData: Self.silentWAV,
-                fileName: "connection-check.wav",
+            await healthStore.reset()
+            try await session.connect(
                 apiKey: key,
-                hints: BailianRecognitionHints(languageHints: ["zh"]),
-                timeout: 15
+                hints: BailianRecognitionHints(languageHints: ["zh"])
             )
-            return (true, nil)
-        } catch BailianError.emptyFinal {
-            // A silent probe can legitimately produce no transcript. Reaching a
-            // successful response still proves that the endpoint accepted the
-            // workspace and credential.
+            try await waitForSessionStarted(session.outputs, timeout: timeout)
+            await session.cancel()
             return (true, nil)
         } catch {
+            await session.cancel()
             return (false, error.localizedDescription)
         }
     }
@@ -128,18 +142,33 @@ struct BailianProvider: CloudProvider {
         return values
     }
 
-    private static let silentWAV: Data = {
-        // 100 ms, 16 kHz, mono, signed 16-bit PCM. A non-empty WAV avoids
-        // providers rejecting the connection probe as a malformed audio file.
-        var bytes: [UInt8] = [
-            0x52, 0x49, 0x46, 0x46, 0xA4, 0x0C, 0x00, 0x00,
-            0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20,
-            0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
-            0x80, 0x3E, 0x00, 0x00, 0x00, 0x7D, 0x00, 0x00,
-            0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61,
-            0x80, 0x0C, 0x00, 0x00,
-        ]
-        bytes.append(contentsOf: repeatElement(0, count: 3_200))
-        return Data(bytes)
-    }()
+    private func waitForSessionStarted(
+        _ outputs: AsyncStream<BailianStreamingOutput>,
+        timeout: Duration
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await output in outputs {
+                    switch output {
+                    case .sessionStarted:
+                        return
+                    case .failed(let error):
+                        throw error
+                    case .partial, .committed, .final:
+                        continue
+                    }
+                }
+                throw BailianError.disconnected
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw BailianError.timeout
+            }
+            guard let result = try await group.next() else {
+                throw BailianError.disconnected
+            }
+            group.cancelAll()
+            return result
+        }
+    }
 }

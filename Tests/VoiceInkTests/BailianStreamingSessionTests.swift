@@ -78,6 +78,16 @@ final class BailianStreamingSessionTests: XCTestCase {
         return try XCTUnwrap(header["task_id"] as? String)
     }
 
+    private func waitForTaskID(from transport: MockWebSocketTransport) async throws -> String {
+        for _ in 0..<100 {
+            if !(await transport.sentMessages()).isEmpty {
+                return try await taskID(from: transport)
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        throw BailianError.timeout
+    }
+
     private func started(_ taskID: String) -> String {
         #"{"header":{"task_id":"\#(taskID)","event":"task-started"},"payload":{}}"#
     }
@@ -256,5 +266,62 @@ final class BailianStreamingSessionTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
         let closedAfterDisconnect = await disconnectedTransport.closed()
         XCTAssertTrue(closedAfterDisconnect)
+    }
+
+    func testConnectionVerificationStopsAfterTaskStartedWithoutSendingAudio() async throws {
+        let configuration = try BailianConfiguration(region: .chinaNorth2, workspaceID: "workspace")
+        let transport = MockWebSocketTransport()
+        let healthStore = BailianProviderHealthStore()
+        let verification = Task {
+            await BailianProvider().verifyAPIKey(
+                "secret",
+                configuration: configuration,
+                transport: transport,
+                healthStore: healthStore,
+                timeout: .seconds(1)
+            )
+        }
+
+        let id = try await waitForTaskID(from: transport)
+        await transport.push(.text(started(id)))
+        let result = await verification.value
+
+        XCTAssertTrue(result.isValid)
+        XCTAssertNil(result.errorMessage)
+        let isClosed = await transport.closed()
+        XCTAssertTrue(isClosed)
+        let messages = await transport.sentMessages()
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages.allSatisfy { message in
+            guard case .text(let text) = message else { return false }
+            return text.contains("run-task")
+        })
+    }
+
+    func testConnectionVerificationReturnsSanitizedTaskFailureAndCloses() async throws {
+        let configuration = try BailianConfiguration(region: .chinaNorth2, workspaceID: "workspace")
+        let transport = MockWebSocketTransport()
+        let healthStore = BailianProviderHealthStore()
+        let verification = Task {
+            await BailianProvider().verifyAPIKey(
+                "secret",
+                configuration: configuration,
+                transport: transport,
+                healthStore: healthStore,
+                timeout: .seconds(1)
+            )
+        }
+
+        let id = try await waitForTaskID(from: transport)
+        await transport.push(.text(failed(id, code: "AUTHENTICATION_FAILED", message: "raw secret detail")))
+        let result = await verification.value
+
+        XCTAssertFalse(result.isValid)
+        XCTAssertEqual(result.errorMessage, "百炼 API Key 无效或无权访问当前地域/业务空间")
+        XCTAssertFalse(result.errorMessage?.contains("raw secret detail") == true)
+        let isClosed = await transport.closed()
+        let health = await healthStore.health
+        XCTAssertTrue(isClosed)
+        XCTAssertEqual(health, .invalidCredential)
     }
 }

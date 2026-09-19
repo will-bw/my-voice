@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
 - 当前检查点：D 已完成所有不依赖外部输入的实现与真实本机验证；A/C 已验收，B1/B2/B3/D 云端与语料实测待凭证及个人语料
-- 状态：51 个 XCTest + 4 个 Python 工具测试通过；首次引导、精确流式背压、隐私控制、脱敏诊断包、历史清理和严格语料评测框架已完成
+- 状态：53 个 XCTest + 4 个 Python 工具测试通过；首次引导、精确流式背压、隐私控制、脱敏诊断包、历史清理和严格语料评测框架已完成
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -40,6 +40,7 @@
 - 历史关闭时的会话音频改存应用专属临时目录；启动会清除崩溃遗留文件，真实启动清理已验证。
 - 设置页新增可审阅的脱敏诊断包导出；仅包含白名单会话字段和环境版本，导出前再次收敛异常或被篡改的数据。
 - 首次引导默认选择 Bailian Cloud Streaming，并要求地域、Workspace ID 与 Keychain API Key 一起验证；只有 Key、没有有效 Workspace 配置时不能继续，失败的连接测试不会持久化 Workspace 草稿。
+- 修复真实设置页连接验证的 HTTP 400：旧实现向 Batch 发送 100 ms 全静音 WAV，百炼会将其判为静音或有效音频过短；现改为建立默认 Streaming 会话并等待 `task-started`，成功后立即关闭且不发送任何音频。新增成功/鉴权失败两条 Mock 回归测试，错误信息继续脱敏。
 - 首次引导的本地模式和云端离线兜底统一为 SenseVoice Small；云端模式可跳过安装，但会明确说明离线识别和自动本地回退不可用。
 
 ## 验证命令与结果
@@ -92,7 +93,7 @@
 | `xcodebuild test … -only-testing:VoiceInkTests`（C） | 通过：37 个 XCTest；新增 7 个安全学习测试，覆盖四类审核、迁移、门禁、Undo/拒绝/改回与停用 |
 | C 增量 Release 构建与深度签名校验 | 通过：Apple Development 稳定签名；Bundle ID `com.will.myvoice.VoiceInk`，TeamIdentifier `22ABMXL88T` |
 | C 真实 `dictionary.store` 启动迁移 | 通过：迁移前后 `WordReplacement=0`，新增 `ZCORRECTIONFEEDBACKMETADATA`，侧表记录 0；日志 `created=0 duplicates=0 orphans=0` |
-| `xcodebuild test … -only-testing:VoiceInkTests`（本轮最终回归） | 通过：51 个 XCTest；覆盖首次引导策略、历史/诊断、动态提示、流式协议、三级回退和精确 64 KB 背压 |
+| `xcodebuild test … -only-testing:VoiceInkTests`（本轮最终回归） | 通过：53 个 XCTest；覆盖首次引导策略、历史/诊断、动态提示、流式协议、无音频连接验证、三级回退和精确 64 KB 背压 |
 | `PYTHONDONTWRITEBYTECODE=1 python -m unittest scripts.tests.test_evaluate_corpus` | 通过：4 个工具测试；验证真实音频、100 条/50 条实体门槛、重复/空成功结果/无效数值拒绝，以及同 Provider 三实验臂完整覆盖门槛 |
 | D `make local` | 通过：`** BUILD SUCCEEDED **`；Apple Development 稳定签名 Release 产物启动成功 |
 | D 真实 store 启动迁移 | 通过：新增 `ZSESSIONDIAGNOSTICMETRIC`，迁移后初始记录 0；三类 store 已备份到 `MigrationBackups/D-20260919-163812` |
@@ -186,7 +187,7 @@
 | # | 当前结论 | 权威证据与缺口 |
 |---|---|---|
 | 1 | 部分满足 | A～D 的非凭证功能已经实现；D 的个人数据参数冻结以及 SenseVoice/Whisper 同语料结论仍缺失。 |
-| 2 | 部分满足 | 51 个 XCTest 与 4 个 Python 工具测试通过；真实百炼端到端、个人语料和连续听写不是这些自动化测试能够证明的范围。 |
+| 2 | 部分满足 | 53 个 XCTest 与 4 个 Python 工具测试通过；真实百炼端到端、个人语料和连续听写不是这些自动化测试能够证明的范围。 |
 | 3 | 部分满足 | 签名 Release 可构建、启动，SenseVoice→TextEdit 跨应用输入已通过；百炼 Streaming/Batch 及浏览器、代码编辑器路径未验收。 |
 | 4 | 未满足 | Mock 已覆盖三级路径、重复事件和清理；真实 Streaming、Batch、SenseVoice 三级回退尚未使用同一批真实会话完成验证。 |
 | 5 | 实现已满足，实测部分满足 | 动态热词、上下文隐私、录音历史、安全学习和脱敏指标均有实现与专项测试；真实云请求中的提示效果及真实人工纠错仍待凭证/个人样例。 |

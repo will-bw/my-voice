@@ -28,6 +28,8 @@ API Key、Workspace ID、HTTP 端点与 WebSocket 端点必须属于同一地域
 5. 音频发送完成后发送 `finish-task`；只有 `task-finished` 才代表完整结束。
 6. `task-failed` 后连接不可复用。
 
+设置页的“验证连接”使用同一条 Streaming 握手与 `run-task` 协议，并以收到 `task-started` 作为成功条件；确认后立即关闭会话，不发送音频。这样可以验证 API Key、Workspace、地域、端点和默认 Streaming 模型，同时避免用静音或合成音频冒充真实转写，也避免服务端以“静音/音频过短”拒绝 Batch 探针。
+
 实现按 `sentence_id` 去重和排序，不使用模糊字符串包含判断。`task-finished` 没有有效文本时归类为空 final，而不是成功。
 
 ## 热词、语言与上下文
