@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
-- 当前检查点：B2（Streaming 主链路的非凭证实现）；A 已验收，B1 真实百炼验收待凭证
-- 状态：B1 基础设施已提交；B2 已接通 Mock Streaming → Batch → SenseVoice 回退、取消/无语音门控、背压保护和实际来源记录，等待真实百炼凭证与跨应用验收
+- 当前检查点：C（安全纠错学习）；A 已验收，B1/B2/B3 真实百炼验收待凭证与个人语料
+- 状态：B3 非凭证实现、测试、签名 Release、设置页和真实旧 store 启动迁移均已通过；开始复核并扩展 Auto Learn
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -22,6 +22,12 @@
 - Onboarding 已设置全局快捷键为 `Control + Option + Space` 并完成真人语音验收。
 - 完成 Onboarding 真人英文听写；Parakeet V3 实际输出 `Please share the meeting notes before lounge.`，相对目标句把 `lunch` 识别为 `lounge`，链路成功但保留该识别误差证据。
 - 下载并将默认 Dictation 模式切换为 SenseVoice Small；在 TextEdit 中完成真人中文跨应用听写，目标与实际输出均为“今天下午3点提交项目报告。”。
+- 新增 `AdaptiveTermMetadata` 本地侧表及幂等迁移；现有词库实体不改动，重复规范化词只报告、不静默合并，旧词库 store 的增量迁移测试通过。
+- 新增规则型 `HotwordSelector`，覆盖 App、URL、Mode、字面命中、固定、最近/频率、纠错和正负反馈；动态路径默认 Top 50，候选不足不补齐。
+- 新增 `ContextPrivacyPolicy`：安全输入和无法确认的焦点边界强制阻止内容读取；用户 App/URL 拒绝列表初始为空并可在百炼设置页管理。
+- 选中文本、剪贴板和屏幕文本只在对应 Mode 开启且隐私检查通过时本地抽取短原词；请求上下文硬限制 400 字符，不保存或记录原文。
+- Streaming 与 Batch 回退共享同一份不可变 `RecognitionHintSnapshot`；设置页提供无热词、全量词（仅评测）和动态 Top-K 三种确定性路径。
+- HUD 在百炼请求建立前显示仅含上下文来源类型和热词数量的临时摘要；partial 到达后切换为实时文本，摘要不含原词、上下文正文或热词列表。
 
 ## 验证命令与结果
 
@@ -64,8 +70,11 @@
 | SenseVoice 真人中文听写 | 通过：历史状态 `completed`，实际 Provider/模型为 SenseVoice Small，输出“今天下午3点提交项目报告。” |
 | SenseVoice 实测耗时 | 两次样本音频 5.068 s / 3.729 s；转写耗时 1.573 s / 0.044 s（第二次受已加载模型缓存影响） |
 | TextEdit 跨应用投递 | 通过：截图可见完整中文结果，焦点与粘贴投递正确 |
-| `xcodebuild test … -only-testing:VoiceInkTests`（B1/B2） | 通过：21 个 XCTest；覆盖百炼协议、错误矩阵、三级回退和取消/无语音门控 |
-| B2 增量 Release 构建 | 通过：Apple Development 稳定签名；仅有上游既有警告 |
+| `xcodebuild test … -only-testing:VoiceInkTests`（B1/B2/B3） | 通过：30 个 XCTest；覆盖百炼协议、三级回退、共享提示快照、规则选择、隐私策略、HUD 脱敏摘要和旧 store 迁移 |
+| B3 增量 Release 构建 | 通过：Apple Development 稳定签名；仅有上游既有警告 |
+| B3 产物深度签名校验 | 通过：Bundle ID `com.will.myvoice.VoiceInk`，TeamIdentifier `22ABMXL88T` |
+| 百炼设置页真实 UI | 通过：三种 Hotword comparison path、App/URL 拒绝列表与脱敏说明均可见 |
+| 真实 `dictionary.store` 启动迁移 | 通过：迁移前后 `VocabularyWord=0`，新增侧表 `ZADAPTIVETERMMETADATA`，日志 `created=0 duplicates=0 orphans=0`；原 store 已先备份 |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。
 
@@ -95,6 +104,18 @@
 - Provider Health 在进程内共享；已知无效凭证或配置不会反复发起网络请求，配置或 API Key 改变时重置。
 - B1/B2 Mock XCTest 共 21 个，新增覆盖 Streaming 成功、Batch 回退、本地回退、取消禁止回退、无语音禁止回退和累积 committed 合并。
 - 待真实凭证：百炼 Streaming partial/final、Batch 固定音频、TextEdit/浏览器/代码编辑器 final 投递与真实回退验收。
+
+## B3 进展
+
+- 完整个人词库继续保存在本机；新侧表保存启用/固定、用户权重、App/URL/Mode 标签、使用/纠错/正负反馈和最近使用信号。
+- 启动迁移幂等创建缺失元数据；不会因迁移失败重建数据库。空库、内存库和已有 `VocabularyWord` 落盘 store 均有测试覆盖。
+- 动态选择只使用规则评分，不包含 Embedding、向量数据库或本地 LLM；默认发送最多 50 个词，稳定限制为 30～80。
+- 默认权重 4；充分正反馈可升为 5；50 只接受用户显式权重。负反馈和停用状态会抑制自动选择。
+- 安全控件、无法确认的 Accessibility 焦点、App 拒绝列表和 URL 拒绝列表会在读取正文前阻断；只保留来源类型和数量审计。
+- `none` / `all` / `dynamic` 三种路径可在百炼设置页重复切换；具体协议和测试方法见 `docs/B3_RECOGNITION_HINTS.md`。
+- 请求建立前的 HUD 会说明本次上下文来源类型和热词数量；该摘要仅存在于当前录音状态且已有不泄露正文/词条的专项测试。
+- 当前 Mac 的本地真实 store 已完成原地增量迁移并重新启动；备份位于 `~/Library/Application Support/com.will.myvoice/MigrationBackups/B3-20260919-1614`。
+- 待真实凭证与个人语料：固定音频的无热词/全量词/动态词 A/B，以及 Streaming/Batch 的真实准确率和误吸附对比。
 
 ## 已解除阻塞
 

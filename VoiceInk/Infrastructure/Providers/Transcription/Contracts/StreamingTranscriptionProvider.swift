@@ -67,6 +67,9 @@ protocol StreamingTranscriptionProvider: AnyObject {
     /// Provider-specific decision made when the user stops recording.
     var stopDisposition: StreamingStopDisposition { get }
 
+    /// Applies immutable request-scoped hints before the connection is opened.
+    func configureRecognitionHints(_ snapshot: RecognitionHintSnapshot?)
+
     /// Connect to the streaming transcription endpoint
     func connect(model: any TranscriptionModel, language: String?) async throws
 
@@ -90,4 +93,5 @@ protocol StreamingTranscriptionProvider: AnyObject {
 extension StreamingTranscriptionProvider {
     var stopDisposition: StreamingStopDisposition { .finalizeStreaming }
     var finalizationEvents: AsyncStream<String>? { nil }
+    func configureRecognitionHints(_ snapshot: RecognitionHintSnapshot?) {}
 }

@@ -5,6 +5,21 @@ struct TranscriptionRuntimeConfiguration {
     let model: any TranscriptionModel
     let language: String
     let isRealtimeEnabled: Bool
+    let recognitionHints: RecognitionHintSnapshot?
+
+    init(
+        mode: ModeConfig,
+        model: any TranscriptionModel,
+        language: String,
+        isRealtimeEnabled: Bool,
+        recognitionHints: RecognitionHintSnapshot? = nil
+    ) {
+        self.mode = mode
+        self.model = model
+        self.language = language
+        self.isRealtimeEnabled = isRealtimeEnabled
+        self.recognitionHints = recognitionHints
+    }
 
     var metadata: (name: String?, emoji: String?) {
         guard mode.isEnabled else {
@@ -16,7 +31,18 @@ struct TranscriptionRuntimeConfiguration {
     var requestContext: TranscriptionRequestContext {
         TranscriptionRequestContext(
             language: language,
-            prompt: model.provider == .whisper ? WhisperPrompt.resolvedPrompt(for: language) : nil
+            prompt: model.provider == .whisper ? WhisperPrompt.resolvedPrompt(for: language) : nil,
+            recognitionHints: recognitionHints
+        )
+    }
+
+    func withRecognitionHints(_ snapshot: RecognitionHintSnapshot) -> TranscriptionRuntimeConfiguration {
+        TranscriptionRuntimeConfiguration(
+            mode: mode,
+            model: model,
+            language: language,
+            isRealtimeEnabled: isRealtimeEnabled,
+            recognitionHints: snapshot
         )
     }
 }

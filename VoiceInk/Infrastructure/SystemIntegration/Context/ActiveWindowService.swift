@@ -5,6 +5,7 @@ import os
 class ActiveWindowService: ObservableObject {
     static let shared = ActiveWindowService()
     @Published var currentApplication: NSRunningApplication?
+    @Published private(set) var currentURL: URL?
     private let browserURLService = BrowserURLService.shared
 
     private let logger = Logger(
@@ -36,6 +37,7 @@ class ActiveWindowService: ObservableObject {
 
         guard shouldApply() else { return Task {} }
         currentApplication = frontmostApp
+        currentURL = nil
 
         let quickConfig =
             ModeManager.shared.getConfigurationForApp(bundleIdentifier)
@@ -55,6 +57,7 @@ class ActiveWindowService: ObservableObject {
             do {
                 let currentURL = try await self.browserURLService.getCurrentURL(from: browserType)
                 await MainActor.run {
+                    self.currentURL = URL(string: currentURL)
                     guard shouldApply(),
                         let config = ModeManager.shared.getConfigurationForURL(currentURL)
                     else {

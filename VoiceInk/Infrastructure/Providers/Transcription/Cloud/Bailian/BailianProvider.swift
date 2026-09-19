@@ -42,6 +42,26 @@ struct BailianProvider: CloudProvider {
         customVocabulary: [String],
         timeout: TimeInterval
     ) async throws -> String {
+        try await transcribe(
+            audioData: audioData,
+            fileName: fileName,
+            apiKey: apiKey,
+            language: language,
+            customVocabulary: customVocabulary,
+            recognitionHints: nil,
+            timeout: timeout
+        )
+    }
+
+    func transcribe(
+        audioData: Data,
+        fileName: String,
+        apiKey: String,
+        language: String?,
+        customVocabulary: [String],
+        recognitionHints: RecognitionHintSnapshot?,
+        timeout: TimeInterval
+    ) async throws -> String {
         let configuration = try BailianConfigurationStore.shared.load()
         var vocabulary: [String: Int] = [:]
         for candidate in customVocabulary {
@@ -50,8 +70,9 @@ struct BailianProvider: CloudProvider {
             if vocabulary.count == 80 { break }
         }
         let hints = try BailianRecognitionHints(
-            vocabulary: vocabulary,
-            languageHints: language.map { [$0] } ?? []
+            vocabulary: recognitionHints?.vocabulary ?? vocabulary,
+            languageHints: recognitionHints?.languageHints ?? language.map { [$0] } ?? [],
+            context: recognitionHints?.context
         )
         let client = BailianBatchClient(configuration: configuration)
         return try await client.transcribe(

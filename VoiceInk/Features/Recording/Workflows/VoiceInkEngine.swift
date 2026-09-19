@@ -95,6 +95,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
     @Published var recordingState: RecordingState = .idle
     @Published var shouldCancelRecording = false
     @Published var partialTranscript: String = ""
+    @Published var recognitionHintSummary: String?
     var currentSession: TranscriptionSession?
     private var currentSessionTranscriptionConfiguration: TranscriptionRuntimeConfiguration?
     private var activeRecordingStartID: UUID?
@@ -293,13 +294,11 @@ class VoiceInkEngine: NSObject, ObservableObject {
                                 return
                             }
 
-                            self.startRecordingContextCapture()
-
                             let modelResolution = ModeRuntimeResolver.transcriptionModelResolution(
                                 transcriptionModelManager: self.transcriptionModelManager
                             )
                             guard
-                                let transcriptionConfiguration = ModeRuntimeResolver.transcriptionConfiguration(
+                                var transcriptionConfiguration = ModeRuntimeResolver.transcriptionConfiguration(
                                     from: modelResolution
                                 )
                             else {
@@ -319,6 +318,23 @@ class VoiceInkEngine: NSObject, ObservableObject {
                                 await self.cleanupResources()
                                 await self.recorderUIManager?.dismissRecorderPanel()
                                 return
+                            }
+
+                            self.startRecordingContextCapture(mode: transcriptionConfiguration.mode)
+
+                            if transcriptionConfiguration.model.provider == .bailian {
+                                let hintSnapshot = await RecognitionHintSnapshotBuilder.capture(
+                                    modelContext: self.modelContext,
+                                    mode: transcriptionConfiguration.mode,
+                                    language: transcriptionConfiguration.language
+                                )
+                                transcriptionConfiguration = transcriptionConfiguration.withRecognitionHints(
+                                    hintSnapshot)
+                                self.recognitionHintSummary = hintSnapshot.userFacingAuditSummary
+                                let contextKind = hintSnapshot.contextKind ?? "none"
+                                self.logger.notice(
+                                    "Recognition hints captured arm=\(hintSnapshot.experimentArm.rawValue, privacy: .public) candidates=\(hintSnapshot.candidateCount, privacy: .public) selected=\(hintSnapshot.vocabulary.count, privacy: .public) context=\(contextKind, privacy: .public)"
+                                )
                             }
 
                             if self.serviceRegistry.shouldUseRealtimeTranscription(for: transcriptionConfiguration) {
@@ -510,18 +526,19 @@ class VoiceInkEngine: NSObject, ObservableObject {
 
     // MARK: - Recording Context
 
-    private func startRecordingContextCapture() {
+    private func startRecordingContextCapture(mode: ModeConfig?) {
         clearActiveRecordingContext()
 
         let store = RecordingContextSnapshotStore()
         activeRecordingContextStore = store
-        activeRecordingContextTasks = RecordingContextCaptureService.startCapture(into: store)
+        activeRecordingContextTasks = RecordingContextCaptureService.startCapture(into: store, mode: mode)
     }
 
     private func clearActiveRecordingContext() {
         activeRecordingContextTasks.forEach { $0.cancel() }
         activeRecordingContextTasks.removeAll()
         activeRecordingContextStore = nil
+        recognitionHintSummary = nil
     }
 
     // MARK: - Pipeline Dispatch

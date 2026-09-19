@@ -25,6 +25,12 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
             && !stateProvider.partialTranscript.isEmpty
     }
 
+    private var hasHintSummary: Bool {
+        stateProvider.recordingState == .recording
+            && !hasLiveTranscript
+            && stateProvider.recognitionHintSummary != nil
+    }
+
     private var hasAssistantResponse: Bool {
         assistantSession.isVisible
     }
@@ -75,6 +81,17 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
             if hasLiveTranscript {
                 LiveTranscriptView(text: stateProvider.partialTranscript)
                 Divider().background(Color.white.opacity(0.15))
+            } else if hasHintSummary, let summary = stateProvider.recognitionHintSummary {
+                Text(summary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .accessibilityLabel("Recognition request summary")
+                    .accessibilityValue(summary)
+                Divider().background(Color.white.opacity(0.15))
             }
         }
     }
@@ -93,14 +110,15 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
             }
             controlBar
         }
-        .frame(width: hasAssistantResponse ? assistantWidth : (hasLiveTranscript ? expandedWidth : compactWidth))
+        .frame(width: hasAssistantResponse ? assistantWidth : ((hasLiveTranscript || hasHintSummary) ? expandedWidth : compactWidth))
         .background(Color.black)
         .clipShape(
             RoundedRectangle(
-                cornerRadius: hasLiveTranscript || hasAssistantResponse ? expandedCornerRadius : compactCornerRadius,
+                cornerRadius: hasLiveTranscript || hasHintSummary || hasAssistantResponse ? expandedCornerRadius : compactCornerRadius,
                 style: .continuous)
         )
         .animation(.easeInOut(duration: 0.3), value: hasLiveTranscript)
+        .animation(.easeInOut(duration: 0.3), value: hasHintSummary)
         .animation(.easeInOut(duration: 0.3), value: hasAssistantResponse)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }

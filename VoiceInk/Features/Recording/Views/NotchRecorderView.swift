@@ -30,7 +30,8 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
         switch stateProvider.recordingState {
         case .recording:
             let shouldShowLive = showLiveTranscript && !stateProvider.partialTranscript.isEmpty
-            return shouldShowLive ? .liveText : .active
+            let shouldShowHintSummary = stateProvider.recognitionHintSummary != nil
+            return shouldShowLive || shouldShowHintSummary ? .liveText : .active
         case .transcribing, .enhancing:
             return .active
         default:
@@ -218,8 +219,19 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
         VStack(spacing: 0) {
             if displayState == .liveText {
                 Divider().background(Color.white.opacity(0.15))
-                LiveTranscriptView(text: stateProvider.partialTranscript)
-                    .padding(.horizontal, 8)
+                if showLiveTranscript && !stateProvider.partialTranscript.isEmpty {
+                    LiveTranscriptView(text: stateProvider.partialTranscript)
+                        .padding(.horizontal, 8)
+                } else if let summary = stateProvider.recognitionHintSummary {
+                    Text(summary)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .accessibilityLabel("Recognition request summary")
+                        .accessibilityValue(summary)
+                }
             }
         }
         .frame(height: displayState == .liveText ? transcriptPanelHeight : 0)

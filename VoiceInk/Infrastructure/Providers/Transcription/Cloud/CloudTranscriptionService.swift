@@ -68,6 +68,17 @@ class CloudTranscriptionService: TranscriptionService {
                 throw CloudTranscriptionError.unsupportedProvider
             }
             let apiKey = try requireAPIKey(forProvider: cloudProvider.providerKey)
+            if let bailianProvider = cloudProvider as? BailianProvider {
+                return try await bailianProvider.transcribe(
+                    audioData: audioData,
+                    fileName: fileName,
+                    apiKey: apiKey,
+                    language: language,
+                    customVocabulary: getCustomDictionaryTerms(),
+                    recognitionHints: context.recognitionHints,
+                    timeout: timeout
+                )
+            }
             return try await cloudProvider.transcribe(
                 audioData: audioData,
                 fileName: fileName,

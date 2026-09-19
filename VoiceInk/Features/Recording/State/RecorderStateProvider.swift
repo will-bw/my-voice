@@ -5,4 +5,6 @@ import Foundation
 protocol RecorderStateProvider: AnyObject {
     var recordingState: RecordingState { get }
     var partialTranscript: String { get }
+    /// Privacy-safe, ephemeral description of the hints prepared for the current request.
+    var recognitionHintSummary: String? { get }
 }

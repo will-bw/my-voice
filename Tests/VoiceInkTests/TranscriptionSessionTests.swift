@@ -9,9 +9,11 @@ private final class MockStreamingService: StreamingTranscriptionServicing {
     private(set) var startCount = 0
     private(set) var stopCount = 0
     private(set) var cancelCount = 0
+    private(set) var lastContext: TranscriptionRequestContext?
 
     func startStreaming(model: any TranscriptionModel, context: TranscriptionRequestContext) async throws {
         startCount += 1
+        lastContext = context
         if let startError { throw startError }
     }
 
@@ -30,6 +32,7 @@ private final class MockStreamingService: StreamingTranscriptionServicing {
 private final class MockTranscriptionService: TranscriptionService {
     var result: Result<String, Error>
     private(set) var calls: [String] = []
+    private(set) var contexts: [TranscriptionRequestContext] = []
 
     init(_ result: Result<String, Error>) {
         self.result = result
@@ -41,6 +44,7 @@ private final class MockTranscriptionService: TranscriptionService {
         context: TranscriptionRequestContext
     ) async throws -> String {
         calls.append(model.name)
+        contexts.append(context)
         return try result.get()
     }
 }
@@ -118,6 +122,31 @@ final class TranscriptionSessionTests: XCTestCase {
         XCTAssertTrue(local.calls.isEmpty)
     }
 
+    func testStreamingAndBatchFallbackShareRecognitionHintSnapshot() async throws {
+        let streaming = MockStreamingService()
+        streaming.stopResult = .failure(StreamingTranscriptionError.connectionFailed("offline"))
+        let batch = MockTranscriptionService(.success("batch"))
+        let local = MockTranscriptionService(.success("local"))
+        let session = makeSession(streaming: streaming, batch: batch, local: local)
+        let snapshot = RecognitionHintSnapshot(
+            vocabulary: ["Morrow": 5],
+            languageHints: ["zh"],
+            context: "Morrow",
+            experimentArm: .dynamic,
+            candidateCount: 1,
+            contextKind: "selected-text",
+            sourceTypes: ["selected-text"],
+            privacyDecision: "allowed",
+            selectionTrace: RecognitionHintSelectionTrace(candidateCount: 1, selectedCount: 1, suppressedCount: 0)
+        )
+        _ = try await session.prepare(configuration: configuration(recognitionHints: snapshot))
+
+        _ = try await session.transcribe(audioURL: try temporaryAudioFile())
+
+        XCTAssertEqual(streaming.lastContext?.recognitionHints, snapshot)
+        XCTAssertEqual(batch.contexts.first?.recognitionHints, snapshot)
+    }
+
     func testBatchFailureUsesInstalledLocalFallback() async throws {
         let streaming = MockStreamingService()
         streaming.stopResult = .failure(StreamingTranscriptionError.rateLimited)
@@ -183,12 +212,13 @@ final class TranscriptionSessionTests: XCTestCase {
         )
     }
 
-    private func configuration() -> TranscriptionRuntimeConfiguration {
+    private func configuration(recognitionHints: RecognitionHintSnapshot? = nil) -> TranscriptionRuntimeConfiguration {
         TranscriptionRuntimeConfiguration(
             mode: ModeConfig(name: "Test", isAIEnhancementEnabled: false),
             model: streamingModel,
             language: "zh",
-            isRealtimeEnabled: true
+            isRealtimeEnabled: true,
+            recognitionHints: recognitionHints
         )
     }
 

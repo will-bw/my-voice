@@ -3,6 +3,13 @@ import Foundation
 struct TranscriptionRequestContext {
     let language: String?
     let prompt: String?
+    let recognitionHints: RecognitionHintSnapshot?
+
+    init(language: String?, prompt: String?, recognitionHints: RecognitionHintSnapshot? = nil) {
+        self.language = language
+        self.prompt = prompt
+        self.recognitionHints = recognitionHints
+    }
 
     static var currentDefaults: TranscriptionRequestContext {
         let language = UserDefaults.standard.string(forKey: "SelectedLanguage") ?? "auto"
@@ -14,7 +21,7 @@ struct TranscriptionRequestContext {
 
     func scoped(to model: any TranscriptionModel) -> TranscriptionRequestContext {
         guard model.provider == .whisper else {
-            return TranscriptionRequestContext(language: language, prompt: nil)
+            return TranscriptionRequestContext(language: language, prompt: nil, recognitionHints: recognitionHints)
         }
 
         return self

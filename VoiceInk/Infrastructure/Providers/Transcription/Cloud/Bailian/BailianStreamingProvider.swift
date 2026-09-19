@@ -8,6 +8,7 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
     private var eventContinuation: AsyncStream<StreamingTranscriptionEvent>.Continuation?
     private var finalContinuation: AsyncStream<String>.Continuation?
     private var startedContinuation: AsyncStream<Void>.Continuation?
+    private var recognitionHints: RecognitionHintSnapshot?
 
     private(set) var transcriptionEvents: AsyncStream<StreamingTranscriptionEvent>
     private let fullFinalizationEvents: AsyncStream<String>
@@ -31,6 +32,10 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
         startedContinuation?.finish()
     }
 
+    func configureRecognitionHints(_ snapshot: RecognitionHintSnapshot?) {
+        recognitionHints = snapshot
+    }
+
     func connect(model: any TranscriptionModel, language: String?) async throws {
         guard let apiKey = APIKeyManager.shared.getAPIKey(forProvider: "Bailian"), !apiKey.isEmpty else {
             throw StreamingTranscriptionError.missingAPIKey
@@ -42,10 +47,17 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
             throw map(error)
         }
 
-        let vocabulary = try dictionaryHints()
+        let vocabulary: [String: Int]
+        if let configuredVocabulary = recognitionHints?.vocabulary {
+            vocabulary = configuredVocabulary
+        } else {
+            vocabulary = try dictionaryHints()
+        }
         let hints = try BailianRecognitionHints(
             vocabulary: vocabulary,
-            languageHints: (language == nil || language == "auto") ? [] : [language!]
+            languageHints: recognitionHints?.languageHints
+                ?? ((language == nil || language == "auto") ? [] : [language!]),
+            context: recognitionHints?.context
         )
         let session = BailianStreamingSession(
             configuration: configuration,

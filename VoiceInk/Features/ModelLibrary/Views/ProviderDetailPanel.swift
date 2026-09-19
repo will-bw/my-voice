@@ -23,6 +23,10 @@ struct ProviderDetailPanel: View {
     @State private var isShowingBailianAdvanced = false
     @State private var bailianConfigurationMessage: String?
     @State private var bailianConfigurationIsValid = false
+    @State private var hotwordExperimentArm: HotwordExperimentArm = .dynamic
+    @State private var deniedContextApps = ""
+    @State private var deniedContextHosts = ""
+    @State private var recognitionPrivacyMessage: String?
 
     private var isBailian: Bool {
         descriptor.providerKey.caseInsensitiveCompare("Bailian") == .orderedSame
@@ -44,6 +48,7 @@ struct ProviderDetailPanel: View {
                 VStack(alignment: .leading, spacing: 18) {
                     if isBailian {
                         bailianConfigurationSection
+                        bailianRecognitionHintsSection
                     }
 
                     apiKeySection
@@ -66,6 +71,66 @@ struct ProviderDetailPanel: View {
         .onAppear(perform: loadSavedAPIKey)
         .onChange(of: descriptor.id) { _, _ in
             resetProviderState()
+        }
+    }
+
+    private var bailianRecognitionHintsSection: some View {
+        ProviderConfigurationGroup(title: "Recognition Hints & Privacy") {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("Hotword comparison path", selection: $hotwordExperimentArm) {
+                    Text("No hotwords").tag(HotwordExperimentArm.none)
+                    Text("Full dictionary (evaluation only)").tag(HotwordExperimentArm.all)
+                    Text("Dynamic Top-K (recommended)").tag(HotwordExperimentArm.dynamic)
+                }
+                .pickerStyle(.menu)
+
+                Text("The selected path is deterministic and applies to both Streaming and Batch for each recording. Full-dictionary mode is intended only for controlled A/B evaluation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Blocked app bundle IDs")
+                        .font(.system(size: 12, weight: .semibold))
+                    TextEditor(text: $deniedContextApps)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 54)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppTheme.Border.control.opacity(0.7)))
+                    Text("One bundle ID per line. Initially empty.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Blocked URL hosts")
+                        .font(.system(size: 12, weight: .semibold))
+                    TextEditor(text: $deniedContextHosts)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 54)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(AppTheme.Border.control.opacity(0.7)))
+                    Text("One host per line; subdomains are also blocked. Initially empty.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Before a request, my-voice checks the focused control and these deny lists. Only source types and counts are logged; raw context and hotword lists are not logged.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    Button("Save Hint Settings") { saveRecognitionHintSettings() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    if let recognitionPrivacyMessage {
+                        Label(recognitionPrivacyMessage, systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.Status.positive)
+                    }
+                }
+            }
+            .padding(12)
+            .background(ProviderSurface(cornerRadius: 8))
         }
     }
 
@@ -578,6 +643,30 @@ struct ProviderDetailPanel: View {
         bailianWebSocketEndpoint = draft.webSocketEndpoint
         bailianConfigurationMessage = nil
         bailianConfigurationIsValid = false
+        hotwordExperimentArm = HotwordExperimentArm.current
+        deniedContextApps = (UserDefaults.standard.stringArray(
+            forKey: ContextPrivacyPolicy.deniedAppsDefaultsKey) ?? []).joined(separator: "\n")
+        deniedContextHosts = (UserDefaults.standard.stringArray(
+            forKey: ContextPrivacyPolicy.deniedHostsDefaultsKey) ?? []).joined(separator: "\n")
+        recognitionPrivacyMessage = nil
+    }
+
+    private func saveRecognitionHintSettings() {
+        UserDefaults.standard.set(hotwordExperimentArm.rawValue, forKey: HotwordExperimentArm.defaultsKey)
+        UserDefaults.standard.set(normalizedLines(deniedContextApps), forKey: ContextPrivacyPolicy.deniedAppsDefaultsKey)
+        UserDefaults.standard.set(normalizedLines(deniedContextHosts), forKey: ContextPrivacyPolicy.deniedHostsDefaultsKey)
+        recognitionPrivacyMessage = String(localized: "Hint and privacy settings saved.")
+    }
+
+    private func normalizedLines(_ value: String) -> [String] {
+        var seen = Set<String>()
+        return value.split(whereSeparator: \Character.isNewline).compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let key = trimmed.lowercased()
+            guard seen.insert(key).inserted else { return nil }
+            return trimmed
+        }
     }
 
     private func saveBailianConfiguration() {

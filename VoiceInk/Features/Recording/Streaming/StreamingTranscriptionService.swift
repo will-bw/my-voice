@@ -208,6 +208,7 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
 
         let provider = createProvider(for: model)
         self.provider = provider
+        provider.configureRecognitionHints(context.recognitionHints)
 
         let selectedLanguage = context.language ?? "auto"
         logger.notice(

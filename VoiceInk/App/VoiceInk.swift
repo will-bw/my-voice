@@ -52,6 +52,7 @@ struct VoiceInkApp: App {
         let schema = Schema([
             Transcription.self,
             VocabularyWord.self,
+            AdaptiveTermMetadata.self,
             WordReplacement.self,
             SessionMetric.self,
         ])
@@ -59,11 +60,18 @@ struct VoiceInkApp: App {
 
         // Attempt 1: Try persistent storage
         do {
-            resolvedContainer = try Self.createPersistentContainer(schema: schema, logger: logger)
+            let persistentContainer = try Self.createPersistentContainer(schema: schema, logger: logger)
+            let migration = try AdaptiveTermMetadataMigration.run(in: persistentContainer.mainContext)
+            logger.info(
+                "Adaptive term migration completed created=\(migration.createdCount, privacy: .public) duplicates=\(migration.duplicateNormalizedTermCount, privacy: .public) orphans=\(migration.orphanMetadataCount, privacy: .public)"
+            )
+            resolvedContainer = persistentContainer
         } catch let persistentError {
             // Attempt 2: Try in-memory storage
             do {
-                resolvedContainer = try Self.createInMemoryContainer(schema: schema, logger: logger)
+                let memoryContainer = try Self.createInMemoryContainer(schema: schema, logger: logger)
+                _ = try AdaptiveTermMetadataMigration.run(in: memoryContainer.mainContext)
+                resolvedContainer = memoryContainer
                 logger.warning("Using in-memory storage as fallback. Data will not persist between sessions.")
 
                 DispatchQueue.main.async {
@@ -239,19 +247,12 @@ struct VoiceInkApp: App {
             cloudKitDatabase: .none
         )
 
-        let dictionarySchema = Schema([VocabularyWord.self, WordReplacement.self])
-        // Dev shares the local stores but must never connect to CloudKit.
-        #if DEBUG || LOCAL_BUILD
-            let dictionaryCloudKit: ModelConfiguration.CloudKitDatabase = .none
-        #else
-            let dictionaryCloudKit: ModelConfiguration.CloudKitDatabase = .private(
-                "iCloud.com.prakashjoshipax.VoiceInk")
-        #endif
+        let dictionarySchema = Schema([VocabularyWord.self, AdaptiveTermMetadata.self, WordReplacement.self])
         let dictionaryConfig = ModelConfiguration(
             "dictionary",
             schema: dictionarySchema,
             url: dictionaryStoreURL,
-            cloudKitDatabase: dictionaryCloudKit
+            cloudKitDatabase: .none
         )
 
         let statsSchema = Schema([SessionMetric.self])
@@ -275,7 +276,7 @@ struct VoiceInkApp: App {
         let transcriptSchema = Schema([Transcription.self])
         let transcriptConfig = ModelConfiguration("default", schema: transcriptSchema, isStoredInMemoryOnly: true)
 
-        let dictionarySchema = Schema([VocabularyWord.self, WordReplacement.self])
+        let dictionarySchema = Schema([VocabularyWord.self, AdaptiveTermMetadata.self, WordReplacement.self])
         let dictionaryConfig = ModelConfiguration("dictionary", schema: dictionarySchema, isStoredInMemoryOnly: true)
 
         let statsSchema = Schema([SessionMetric.self])
