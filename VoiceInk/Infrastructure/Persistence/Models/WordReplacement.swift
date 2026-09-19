@@ -15,7 +15,7 @@ final class WordReplacement {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .precomposedStringWithCanonicalMapping
         self.dateAdded = dateAdded
-        // Keep this persisted field for store and CloudKit compatibility; every rule remains active.
+        // New and migrated rules start enabled. Safety feedback may later stop a rule.
         self.isEnabled = true
     }
 }

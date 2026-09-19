@@ -11,6 +11,12 @@ final class WordReplacementService {
         let originalText: String
         let replacementText: String
         let dateAdded: Date
+        let isEnabled: Bool
+    }
+
+    private struct FeedbackRecord: Equatable {
+        let ruleKey: String
+        let isEnabled: Bool
     }
 
     private struct PreparedRule {
@@ -24,35 +30,37 @@ final class WordReplacementService {
         category: "WordReplacementService"
     )
     private var cachedRecords: [RuleRecord]?
+    private var cachedFeedbackRecords: [FeedbackRecord]?
     private var cachedRules: [PreparedRule] = []
 
     private init() {}
 
     func applyReplacements(to text: String, using context: ModelContext) -> String {
-        // `isEnabled` is retained only for store and CloudKit compatibility.
-        // Replacement rules are intentionally always active.
         let descriptor = FetchDescriptor<WordReplacement>()
 
         let replacements: [WordReplacement]
+        let feedback: [CorrectionFeedbackMetadata]
         do {
             replacements = try context.fetch(descriptor)
+            feedback = try context.fetch(FetchDescriptor<CorrectionFeedbackMetadata>())
         } catch {
             logger.error("Could not load word replacements: \(error, privacy: .public)")
             return text
         }
 
-        guard !replacements.isEmpty else {
+        let enabledReplacements = replacements.filter(\.isEnabled)
+        guard !enabledReplacements.isEmpty else {
             logger.debug("Word replacement skipped: no enabled rules")
             return text
         }
 
         logger.debug(
-            "Starting word replacement with \(replacements.count, privacy: .public) enabled rule(s)"
+            "Starting word replacement with \(enabledReplacements.count, privacy: .public) enabled rule(s)"
         )
 
         var modifiedText = text
 
-        let rules = preparedRules(from: replacements)
+        let rules = preparedRules(from: enabledReplacements, feedback: feedback)
 
         logger.debug(
             "Prepared \(rules.count, privacy: .public) replacement variant(s)"
@@ -98,27 +106,46 @@ final class WordReplacementService {
         return modifiedText
     }
 
-    private func preparedRules(from replacements: [WordReplacement]) -> [PreparedRule] {
+    private func preparedRules(
+        from replacements: [WordReplacement],
+        feedback: [CorrectionFeedbackMetadata]
+    ) -> [PreparedRule] {
         let records = replacements
             .map {
                 RuleRecord(
                     id: $0.id,
                     originalText: $0.originalText,
                     replacementText: $0.replacementText,
-                    dateAdded: $0.dateAdded
+                    dateAdded: $0.dateAdded,
+                    isEnabled: $0.isEnabled
                 )
             }
             .sorted { $0.id.uuidString < $1.id.uuidString }
+        let feedbackRecords = feedback
+            .map { FeedbackRecord(ruleKey: $0.ruleKey, isEnabled: $0.isEnabled) }
+            .sorted { $0.ruleKey < $1.ruleKey }
 
-        if cachedRecords == records {
+        if cachedRecords == records, cachedFeedbackRecords == feedbackRecords {
             return cachedRules
         }
 
+        let disabledRuleKeys = Set(feedbackRecords.filter { !$0.isEnabled }.map(\.ruleKey))
+
         let sortedRules = records
             .flatMap { record in
-                WordReplacementVariants.parse(record.originalText).map {
-                    (
-                        original: $0,
+                return WordReplacementVariants.parse(record.originalText).compactMap { source -> (
+                    original: String,
+                    replacement: String,
+                    dateAdded: Date,
+                    id: String
+                )? in
+                    let ruleKey = CorrectionFeedbackMetadata.key(
+                        originalTerm: source,
+                        replacementTerm: record.replacementText
+                    )
+                    guard !disabledRuleKeys.contains(ruleKey) else { return nil }
+                    return (
+                        original: source,
                         replacement: record.replacementText,
                         dateAdded: record.dateAdded,
                         id: record.id.uuidString
@@ -164,6 +191,7 @@ final class WordReplacementService {
         }
 
         cachedRecords = records
+        cachedFeedbackRecords = feedbackRecords
         cachedRules = prepared
         logger.debug("Rebuilt cached word replacement plan with \(prepared.count, privacy: .public) rule(s)")
         return prepared

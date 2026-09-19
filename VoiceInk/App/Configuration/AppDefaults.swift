@@ -47,10 +47,14 @@ enum AutoLearnSettings {
     }
 
     static var reviewSchedule: AutoLearnReviewSchedule {
-        guard let value = UserDefaults.standard.string(forKey: reviewScheduleKey) else {
-            return .immediately
+        reviewSchedule(defaults: .standard)
+    }
+
+    static func reviewSchedule(defaults: UserDefaults) -> AutoLearnReviewSchedule {
+        guard let value = defaults.string(forKey: reviewScheduleKey) else {
+            return .manually
         }
-        return AutoLearnReviewSchedule(rawValue: value) ?? .immediately
+        return AutoLearnReviewSchedule(rawValue: value) ?? .manually
     }
 
     /// Adopts the first configured enhancement provider for Auto Learn.
@@ -152,7 +156,7 @@ enum AppDefaults {
             RecorderDisplaySettingsKeys.showLiveTranscript: true,
             CloudTranscriptionSettings.timeoutKey: CloudTranscriptionSettings.defaultTimeout,
             AutoLearnSettings.isEnabledKey: true,
-            AutoLearnSettings.reviewScheduleKey: AutoLearnReviewSchedule.immediately.rawValue,
+            AutoLearnSettings.reviewScheduleKey: AutoLearnReviewSchedule.manually.rawValue,
 
             // Cleanup
             CleanupSettingsKeys.isTranscriptionCleanupEnabled: false,

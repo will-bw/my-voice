@@ -4,6 +4,7 @@ import SwiftData
 @ModelActor
 actor WordReplacementStore {
     private enum MutationError: Error { case invalidReplacementSource }
+    private enum NegativeFeedbackKind { case rejected, undone, reverted }
     func apply(
         _ decisions: [AutoLearnReviewDecision],
         candidates: [AutoLearnReviewCandidate]
@@ -90,6 +91,16 @@ actor WordReplacementStore {
                     }
 
                     if mutation.created || mutation.updated || vocabularyCreationDate != nil {
+                        if let source = decision.incorrectTextToReplace,
+                            mutation.created || mutation.updated
+                        {
+                            recordAcceptedFeedback(
+                                source: source,
+                                destination: correctedVocabularyTerm
+                            )
+                        } else if vocabularyCreationDate != nil {
+                            recordAcceptedVocabulary(term: correctedVocabularyTerm)
+                        }
                         learnedCorrections.append(
                             AutoLearnAppliedCorrection(
                                 incorrectTextToReplace: decision.incorrectTextToReplace
@@ -118,6 +129,15 @@ actor WordReplacementStore {
 
     func undo(_ correction: AutoLearnAppliedCorrection) throws {
         try modelContext.transaction {
+            if correction.replacementSourceWasAdded {
+                recordNegativeFeedback(
+                    source: correction.incorrectTextToReplace,
+                    destination: correction.correctedVocabularyTerm,
+                    kind: .undone
+                )
+            } else {
+                recordAdaptiveNegative(term: correction.correctedVocabularyTerm)
+            }
             if correction.replacementSourceWasAdded {
                 let destinationKey = WordReplacementVariants.destinationKey(
                     for: correction.correctedVocabularyTerm
@@ -164,6 +184,81 @@ actor WordReplacementStore {
             modelContext.rollback()
             throw error
         }
+    }
+
+    func recordRejected(_ proposals: [AutoLearnReviewProposal]) throws {
+        guard !proposals.isEmpty else { return }
+        try modelContext.transaction {
+            for proposal in proposals {
+                guard let destination = proposal.correctedVocabularyTerm else { continue }
+                if proposal.addsReplacement, let source = proposal.incorrectTextToReplace {
+                    recordNegativeFeedback(
+                        source: source,
+                        destination: destination,
+                        kind: .rejected
+                    )
+                } else {
+                    recordAdaptiveNegative(term: destination)
+                }
+            }
+        }
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+    }
+
+    /// Detects the strongest possible "changed it back" signal: replacing a
+    /// learned destination with its exact source must reproduce the whole
+    /// observed revision. Ambiguous or partial rewrites are ignored.
+    func recordUserReverts(in revision: AutoLearnRevision) throws -> Int {
+        let rules = try modelContext.fetch(FetchDescriptor<WordReplacement>())
+        let existingFeedback = try modelContext.fetch(FetchDescriptor<CorrectionFeedbackMetadata>())
+        let feedbackByKey = Dictionary(
+            existingFeedback.map { ($0.ruleKey, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var matches: [(source: String, destination: String)] = []
+
+        for rule in rules where rule.isEnabled {
+            for source in WordReplacementVariants.parse(rule.originalText) {
+                let key = CorrectionFeedbackMetadata.key(
+                    originalTerm: source,
+                    replacementTerm: rule.replacementText
+                )
+                guard feedbackByKey[key]?.isEnabled != false else { continue }
+                let reverted = revision.original.replacingOccurrences(
+                    of: rule.replacementText,
+                    with: source,
+                    options: .caseInsensitive
+                )
+                guard reverted != revision.original,
+                    AutoLearnTextNormalizer.accessibilityComparable(reverted)
+                        == AutoLearnTextNormalizer.accessibilityComparable(revision.corrected)
+                else { continue }
+                matches.append((source, rule.replacementText))
+            }
+        }
+
+        guard !matches.isEmpty else { return 0 }
+        do {
+            try modelContext.transaction {
+                for match in matches {
+                    recordNegativeFeedback(
+                        source: match.source,
+                        destination: match.destination,
+                        kind: .reverted
+                    )
+                }
+            }
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+        return matches.count
     }
 
     private func applyReplacement(
@@ -218,6 +313,82 @@ actor WordReplacementStore {
 
         existingSourceKeys.insert(sourceKey)
         return (canonical == nil, canonical != nil)
+    }
+
+    private func recordAcceptedFeedback(source: String, destination: String) {
+        let metadata = feedbackMetadata(source: source, destination: destination)
+        metadata.acceptedCount += 1
+        metadata.confidence = min(1, metadata.confidence + 0.15)
+        metadata.isEnabled = true
+        metadata.lastTriggeredAt = Date()
+
+        let adaptive = adaptiveMetadata(term: destination)
+        adaptive.correctionCount += 1
+        adaptive.positiveFeedbackCount += 1
+        adaptive.lastUsedAt = Date()
+    }
+
+    private func recordAcceptedVocabulary(term: String) {
+        let adaptive = adaptiveMetadata(term: term)
+        adaptive.positiveFeedbackCount += 1
+        adaptive.lastUsedAt = Date()
+    }
+
+    private func recordNegativeFeedback(
+        source: String,
+        destination: String,
+        kind: NegativeFeedbackKind
+    ) {
+        let metadata = feedbackMetadata(source: source, destination: destination)
+        switch kind {
+        case .rejected: metadata.rejectedCount += 1
+        case .undone: metadata.undoCount += 1
+        case .reverted: metadata.revertCount += 1
+        }
+        metadata.confidence = max(0, metadata.confidence - 0.25)
+        if metadata.negativeFeedbackCount >= 2 || metadata.confidence <= 0.05 {
+            metadata.isEnabled = false
+        }
+        metadata.lastTriggeredAt = Date()
+
+        recordAdaptiveNegative(term: destination)
+    }
+
+    private func recordAdaptiveNegative(term: String) {
+        let adaptive = adaptiveMetadata(term: term)
+        adaptive.negativeFeedbackCount += 1
+        adaptive.lastUsedAt = Date()
+    }
+
+    private func feedbackMetadata(
+        source: String,
+        destination: String
+    ) -> CorrectionFeedbackMetadata {
+        let key = CorrectionFeedbackMetadata.key(
+            originalTerm: source,
+            replacementTerm: destination
+        )
+        let existing = (try? modelContext.fetch(FetchDescriptor<CorrectionFeedbackMetadata>())) ?? []
+        if let metadata = existing.first(where: { $0.ruleKey == key }) {
+            return metadata
+        }
+        let metadata = CorrectionFeedbackMetadata(
+            originalTerm: source,
+            replacementTerm: destination
+        )
+        modelContext.insert(metadata)
+        return metadata
+    }
+
+    private func adaptiveMetadata(term: String) -> AdaptiveTermMetadata {
+        let key = AdaptiveTermMetadata.normalize(term)
+        let existing = (try? modelContext.fetch(FetchDescriptor<AdaptiveTermMetadata>())) ?? []
+        if let metadata = existing.first(where: { $0.normalizedTerm == key }) {
+            return metadata
+        }
+        let metadata = AdaptiveTermMetadata(term: term)
+        modelContext.insert(metadata)
+        return metadata
     }
 
     private func destinationOrder(_ lhs: WordReplacement, _ rhs: WordReplacement) -> Bool {

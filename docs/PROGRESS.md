@@ -1,7 +1,7 @@
 # my-voice 开发进度
 
-- 当前检查点：C（安全纠错学习）；A 已验收，B1/B2/B3 真实百炼验收待凭证与个人语料
-- 状态：B3 非凭证实现、测试、签名 Release、设置页和真实旧 store 启动迁移均已通过；开始复核并扩展 Auto Learn
+- 当前检查点：D（隐私默认值、脱敏指标与可复现评测工具）；A/C 已验收，B1/B2/B3 真实百炼验收待凭证与个人语料
+- 状态：C 已完成并通过真实 store 增量迁移、稳定签名 Release 构建与 37 个 XCTest；开始 D
 - 更新日期：2026-09-19
 
 ## 已完成
@@ -28,6 +28,8 @@
 - 选中文本、剪贴板和屏幕文本只在对应 Mode 开启且隐私检查通过时本地抽取短原词；请求上下文硬限制 400 字符，不保存或记录原文。
 - Streaming 与 Batch 回退共享同一份不可变 `RecognitionHintSnapshot`；设置页提供无热词、全量词（仅评测）和动态 Top-K 三种确定性路径。
 - HUD 在百炼请求建立前显示仅含上下文来源类型和热词数量的临时摘要；partial 到达后切换为实时文本，摘要不含原词、上下文正文或热词列表。
+- Auto Learn 新安装默认人工审核；新增本地 `CorrectionFeedbackMetadata`，把接受、拒绝、Undo、用户改回、置信度和停用状态连接到词库与动态热词信号。
+- 纯标点/大小写风格变化、重复边界锚点和大范围整句重写不会生成永久规则；两次负反馈后具体替换变体停止应用。
 
 ## 验证命令与结果
 
@@ -75,6 +77,9 @@
 | B3 产物深度签名校验 | 通过：Bundle ID `com.will.myvoice.VoiceInk`，TeamIdentifier `22ABMXL88T` |
 | 百炼设置页真实 UI | 通过：三种 Hotword comparison path、App/URL 拒绝列表与脱敏说明均可见 |
 | 真实 `dictionary.store` 启动迁移 | 通过：迁移前后 `VocabularyWord=0`，新增侧表 `ZADAPTIVETERMMETADATA`，日志 `created=0 duplicates=0 orphans=0`；原 store 已先备份 |
+| `xcodebuild test … -only-testing:VoiceInkTests`（C） | 通过：37 个 XCTest；新增 7 个安全学习测试，覆盖四类审核、迁移、门禁、Undo/拒绝/改回与停用 |
+| C 增量 Release 构建与深度签名校验 | 通过：Apple Development 稳定签名；Bundle ID `com.will.myvoice.VoiceInk`，TeamIdentifier `22ABMXL88T` |
+| C 真实 `dictionary.store` 启动迁移 | 通过：迁移前后 `WordReplacement=0`，新增 `ZCORRECTIONFEEDBACKMETADATA`，侧表记录 0；日志 `created=0 duplicates=0 orphans=0` |
 
 上游快照包含原有尾随空格，`git diff --cached --check` 会报告这些既有格式问题；为保持固定快照逐 blob 一致，导入提交未格式化上游文件。
 
@@ -116,6 +121,17 @@
 - 请求建立前的 HUD 会说明本次上下文来源类型和热词数量；该摘要仅存在于当前录音状态且已有不泄露正文/词条的专项测试。
 - 当前 Mac 的本地真实 store 已完成原地增量迁移并重新启动；备份位于 `~/Library/Application Support/com.will.myvoice/MigrationBackups/B3-20260919-1614`。
 - 待真实凭证与个人语料：固定音频的无热词/全量词/动态词 A/B，以及 Streaming/Batch 的真实准确率和误吸附对比。
+
+## C 进展
+
+- 复用既有 Auto Learn 的目标控件、投递范围、焦点和 60 秒观察窗口；范围锚点不唯一时放弃，不扩大为全局输入监听。
+- 新安装默认 `Manually`：AI 只生成建议，人工审核面板区分“替换+词库、仅替换、仅词库、拒绝”，不会默认静默批准永久规则。
+- 新增 `CorrectionFeedbackMetadata` 唯一侧表和幂等迁移，保存接受、拒绝、Undo、改回、置信度与启用状态，并同步目标词的自适应正负反馈。
+- Dismiss、Undo 和精确用户改回都会降置信度；累计两次负反馈后，`WordReplacementService` 停用对应的具体来源/目标变体。
+- 确定性门禁拒绝纯标点、大小写/变音符号风格变化、只增删内容、重复锚点和超过 6 个词的整段重写；详细设计见 `docs/C_SAFE_LEARNING.md`。
+- 37 个 XCTest 全部通过，其中 7 个 C 专项测试覆盖四类审核、侧表迁移、局部纠错保留、误学习过滤和规则停用。
+- 当前 Mac 的真实 store 已备份到 `~/Library/Application Support/com.will.myvoice/MigrationBackups/C-20260919-162603` 后原地迁移；可见规则数量保持为 0，侧表创建成功，签名应用已重新启动。
+- SenseVoice Small 继续作为默认本地模型；与 Whisper Large v3 Turbo Quantized 的同语料对照等待个人真实语料和对应模型结果，不据主观判断改默认值。
 
 ## 已解除阻塞
 

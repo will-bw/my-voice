@@ -13,7 +13,7 @@ struct DictionarySettingsPanel: View {
     let onReviewNow: () -> Void
     @AppStorage(AutoLearnSettings.isEnabledKey) private var isAutoLearnDictionaryEnabled = true
     @AppStorage(AutoLearnSettings.reviewScheduleKey)
-    private var reviewScheduleRawValue = AutoLearnReviewSchedule.immediately.rawValue
+    private var reviewScheduleRawValue = AutoLearnReviewSchedule.manually.rawValue
     @State private var pendingCorrectionCount = 0
     @State private var pendingImport: DictionaryImportPayload?
     @State private var transferAlert: DictionaryTransferAlert?

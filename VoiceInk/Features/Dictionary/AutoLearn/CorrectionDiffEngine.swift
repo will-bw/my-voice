@@ -97,6 +97,8 @@ enum CorrectionDiffEngine {
             }
 
             guard pair.source != pair.destination,
+                !isStyleOnlyChange(pair.source, pair.destination),
+                !isBroadRewrite(pair.source, pair.destination),
                 !pair.source.contains(","),
                 pair.source.count <= AutoLearnLimits.maximumCandidateCharacters,
                 pair.destination.count <= AutoLearnLimits.maximumCandidateCharacters,
@@ -335,6 +337,32 @@ enum CorrectionDiffEngine {
         text.unicodeScalars.contains { scalar in
             CharacterSet.controlCharacters.contains(scalar)
         }
+    }
+
+    private static func isStyleOnlyChange(_ source: String, _ destination: String) -> Bool {
+        let locale = Locale(identifier: "en_US_POSIX")
+        let foldedSource = source.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: locale
+        )
+        let foldedDestination = destination.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: locale
+        )
+        if foldedSource == foldedDestination { return true }
+
+        let ignored = CharacterSet.punctuationCharacters
+            .union(.symbols)
+            .union(.whitespacesAndNewlines)
+        let semanticSource = foldedSource.unicodeScalars.filter { !ignored.contains($0) }
+        let semanticDestination = foldedDestination.unicodeScalars.filter { !ignored.contains($0) }
+        return semanticSource.elementsEqual(semanticDestination)
+    }
+
+    private static func isBroadRewrite(_ source: String, _ destination: String) -> Bool {
+        let sourceWordCount = source.split(whereSeparator: \.isWhitespace).count
+        let destinationWordCount = destination.split(whereSeparator: \.isWhitespace).count
+        return sourceWordCount > 6 || destinationWordCount > 6
     }
 
     private static func isWithinUnspacedPrivacyLimit(

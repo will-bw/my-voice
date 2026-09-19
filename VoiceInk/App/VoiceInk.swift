@@ -54,6 +54,7 @@ struct VoiceInkApp: App {
             VocabularyWord.self,
             AdaptiveTermMetadata.self,
             WordReplacement.self,
+            CorrectionFeedbackMetadata.self,
             SessionMetric.self,
         ])
         let resolvedContainer: ModelContainer
@@ -62,8 +63,13 @@ struct VoiceInkApp: App {
         do {
             let persistentContainer = try Self.createPersistentContainer(schema: schema, logger: logger)
             let migration = try AdaptiveTermMetadataMigration.run(in: persistentContainer.mainContext)
+            let correctionMigration = try CorrectionFeedbackMetadataMigration.run(
+                in: persistentContainer.mainContext)
             logger.info(
                 "Adaptive term migration completed created=\(migration.createdCount, privacy: .public) duplicates=\(migration.duplicateNormalizedTermCount, privacy: .public) orphans=\(migration.orphanMetadataCount, privacy: .public)"
+            )
+            logger.info(
+                "Correction feedback migration completed created=\(correctionMigration.createdCount, privacy: .public) duplicates=\(correctionMigration.duplicateRuleCount, privacy: .public) orphans=\(correctionMigration.orphanMetadataCount, privacy: .public)"
             )
             resolvedContainer = persistentContainer
         } catch let persistentError {
@@ -71,6 +77,7 @@ struct VoiceInkApp: App {
             do {
                 let memoryContainer = try Self.createInMemoryContainer(schema: schema, logger: logger)
                 _ = try AdaptiveTermMetadataMigration.run(in: memoryContainer.mainContext)
+                _ = try CorrectionFeedbackMetadataMigration.run(in: memoryContainer.mainContext)
                 resolvedContainer = memoryContainer
                 logger.warning("Using in-memory storage as fallback. Data will not persist between sessions.")
 
@@ -247,7 +254,12 @@ struct VoiceInkApp: App {
             cloudKitDatabase: .none
         )
 
-        let dictionarySchema = Schema([VocabularyWord.self, AdaptiveTermMetadata.self, WordReplacement.self])
+        let dictionarySchema = Schema([
+            VocabularyWord.self,
+            AdaptiveTermMetadata.self,
+            WordReplacement.self,
+            CorrectionFeedbackMetadata.self,
+        ])
         let dictionaryConfig = ModelConfiguration(
             "dictionary",
             schema: dictionarySchema,
@@ -276,7 +288,12 @@ struct VoiceInkApp: App {
         let transcriptSchema = Schema([Transcription.self])
         let transcriptConfig = ModelConfiguration("default", schema: transcriptSchema, isStoredInMemoryOnly: true)
 
-        let dictionarySchema = Schema([VocabularyWord.self, AdaptiveTermMetadata.self, WordReplacement.self])
+        let dictionarySchema = Schema([
+            VocabularyWord.self,
+            AdaptiveTermMetadata.self,
+            WordReplacement.self,
+            CorrectionFeedbackMetadata.self,
+        ])
         let dictionaryConfig = ModelConfiguration("dictionary", schema: dictionarySchema, isStoredInMemoryOnly: true)
 
         let statsSchema = Schema([SessionMetric.self])

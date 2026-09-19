@@ -172,8 +172,17 @@ actor AutoLearnService {
     }
 
     func dismissReviewProposals(_ proposalIDs: Set<UUID>) async throws {
+        if let replacementStore {
+            let rejected = try await reviewProposalStore.all().filter {
+                proposalIDs.contains($0.id)
+            }
+            try await replacementStore.recordRejected(rejected)
+        }
         try await reviewProposalStore.remove(proposalIDs)
         await notifyReviewProposalsChanged()
+        await MainActor.run {
+            NotificationCenter.default.post(name: .wordReplacementsDidChange, object: nil)
+        }
     }
 
     func updateReviewProposal(
@@ -391,6 +400,23 @@ actor AutoLearnService {
         else { return }
 
         guard let revision = FinalSnapshotDiffEngine.revision(from: snapshot) else { return }
+        if let replacementStore {
+            do {
+                let revertedCount = try await replacementStore.recordUserReverts(in: revision)
+                if revertedCount > 0 {
+                    logger.notice(
+                        "Recorded \(revertedCount, privacy: .public) Auto Learn user-revert signal(s)"
+                    )
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .wordReplacementsDidChange, object: nil)
+                    }
+                    return
+                }
+            } catch {
+                log(error, message: "Failed to record Auto Learn user-revert feedback")
+                return
+            }
+        }
         let candidates = CorrectionDiffEngine.candidates(from: revision)
         guard !candidates.isEmpty else { return }
 
