@@ -7,6 +7,8 @@ private actor MockWebSocketTransport: BailianWebSocketTransport {
     private(set) var sent: [BailianWebSocketMessage] = []
     private(set) var isClosed = false
     var connectError: Error?
+    private var stallSend = false
+    private var sendWaiter: CheckedContinuation<Void, Error>?
     private var queued: [Result<BailianWebSocketMessage, Error>] = []
     private var waiters: [CheckedContinuation<BailianWebSocketMessage, Error>] = []
 
@@ -18,6 +20,9 @@ private actor MockWebSocketTransport: BailianWebSocketTransport {
     func send(_ message: BailianWebSocketMessage) async throws {
         if isClosed { throw BailianError.disconnected }
         sent.append(message)
+        if stallSend {
+            try await withCheckedThrowingContinuation { sendWaiter = $0 }
+        }
     }
 
     func receive() async throws -> BailianWebSocketMessage {
@@ -29,6 +34,8 @@ private actor MockWebSocketTransport: BailianWebSocketTransport {
 
     func close() async {
         isClosed = true
+        sendWaiter?.resume(throwing: CancellationError())
+        sendWaiter = nil
         let current = waiters
         waiters.removeAll()
         current.forEach { $0.resume(throwing: CancellationError()) }
@@ -52,17 +59,119 @@ private actor MockWebSocketTransport: BailianWebSocketTransport {
 
     func sentMessages() -> [BailianWebSocketMessage] { sent }
     func closed() -> Bool { isClosed }
+    func blockSend() { stallSend = true }
+}
+
+private struct NoWordsHTTPTransport: BailianHTTPTransport {
+    var json = #"{"code":"CLIENT_ERROR","message":"ASR_RESPONSE_HAVE_NO_WORDS"}"#
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        (
+            Data(json.utf8),
+            HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+        )
+    }
 }
 
 final class BailianStreamingSessionTests: XCTestCase {
-    private func makeSession() throws -> (BailianStreamingSession, MockWebSocketTransport) {
+    func testBlockedAudioSendTimesOutAndAllowsNextSession() async throws {
+        let health = BailianProviderHealthStore()
+        let transport = MockWebSocketTransport()
+        let session = BailianStreamingSession(
+            configuration: try BailianConfiguration(region: .chinaNorth2, workspaceID: "workspace"),
+            transport: transport, healthStore: health, sendTimeout: .milliseconds(50)
+        )
+        try await session.connect(apiKey: "test", hints: BailianRecognitionHints())
+        let id = try await taskID(from: transport)
+        await session.handleServerText(started(id))
+        await transport.blockSend()
+        do { try await session.sendAudio(Data([1, 2])); XCTFail("Expected timeout") }
+        catch { XCTAssertEqual(error as? BailianError, .timeout) }
+        let closed = await transport.closed()
+        XCTAssertTrue(closed)
+        try await health.ensureAttemptAllowed()
+    }
+
+    func testBlockedFinishTaskTimesOutRatherThanHangingFinalization() async throws {
+        let transport = MockWebSocketTransport()
+        let session = BailianStreamingSession(
+            configuration: try BailianConfiguration(region: .chinaNorth2, workspaceID: "workspace"),
+            transport: transport, healthStore: BailianProviderHealthStore(), sendTimeout: .milliseconds(50)
+        )
+        try await session.connect(apiKey: "test", hints: BailianRecognitionHints())
+        let id = try await taskID(from: transport)
+        await session.handleServerText(started(id))
+        await transport.blockSend()
+        do { try await session.requestFinish(); XCTFail("Expected timeout") }
+        catch { XCTAssertEqual(error as? BailianError, .timeout) }
+        let closed = await transport.closed()
+        XCTAssertTrue(closed)
+    }
+
+    func testStartupDeadlineClosesTransportWhenRunTaskSendIsStuck() async throws {
+        let health = BailianProviderHealthStore()
+        let (session, transport) = try makeSession(healthStore: health)
+        await transport.blockSend()
+        let start = ContinuousClock.now
+        do {
+            try await session.connectAndWaitForStarted(
+                apiKey: "test", hints: BailianRecognitionHints(), timeout: .milliseconds(50)
+            )
+            XCTFail("Expected timeout")
+        } catch { XCTAssertEqual(error as? BailianError, .timeout) }
+        XCTAssertLessThan(start.duration(to: .now), .seconds(2))
+        let closed = await transport.closed()
+        XCTAssertTrue(closed, "Deadline must release the blocked WebSocket send")
+        try await health.ensureAttemptAllowed()
+    }
+
+    func testStartupDeadlineIncludesMissingTaskStartedAcknowledgement() async throws {
+        let (session, transport) = try makeSession()
+        do {
+            try await session.connectAndWaitForStarted(
+                apiKey: "test", hints: BailianRecognitionHints(), timeout: .milliseconds(50)
+            )
+            XCTFail("Expected timeout")
+        } catch { XCTAssertEqual(error as? BailianError, .timeout) }
+        let closed = await transport.closed()
+        XCTAssertTrue(closed)
+    }
+
+    func testCancelDuringBlockedStartupReleasesSendImmediately() async throws {
+        let (session, transport) = try makeSession()
+        await transport.blockSend()
+        let startup = Task {
+            try await session.connectAndWaitForStarted(apiKey: "test", hints: BailianRecognitionHints())
+        }
+        _ = try await waitForTaskID(from: transport)
+        startup.cancel()
+        do { try await startup.value; XCTFail("Expected cancellation") }
+        catch { XCTAssertEqual(error as? BailianError, .canceled) }
+        let closed = await transport.closed()
+        XCTAssertTrue(closed)
+    }
+
+    func testStartedAcknowledgementCompletesStartupWithoutConsumingOutputs() async throws {
+        let (session, transport) = try makeSession()
+        let startup = Task {
+            try await session.connectAndWaitForStarted(apiKey: "test", hints: BailianRecognitionHints())
+        }
+        let taskID = try await waitForTaskID(from: transport)
+        await transport.push(.text(started(taskID)))
+        try await startup.value
+        var iterator = session.outputs.makeAsyncIterator()
+        let output = await iterator.next()
+        XCTAssertEqual(output, .sessionStarted)
+        await session.cancel()
+    }
+
+    private func makeSession(healthStore: BailianProviderHealthStore = BailianProviderHealthStore()) throws -> (BailianStreamingSession, MockWebSocketTransport) {
         let configuration = try BailianConfiguration(region: .chinaNorth2, workspaceID: "workspace")
         let transport = MockWebSocketTransport()
         return (
             BailianStreamingSession(
                 configuration: configuration,
                 transport: transport,
-                healthStore: BailianProviderHealthStore()
+                healthStore: healthStore
             ),
             transport
         )
@@ -83,6 +192,18 @@ final class BailianStreamingSessionTests: XCTestCase {
             if !(await transport.sentMessages()).isEmpty {
                 return try await taskID(from: transport)
             }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        throw BailianError.timeout
+    }
+
+    private func waitForFinishTask(from transport: MockWebSocketTransport) async throws {
+        for _ in 0..<500 {
+            let messages = await transport.sentMessages()
+            if messages.contains(where: {
+                guard case .text(let text) = $0 else { return false }
+                return text.contains("finish-task")
+            }) { return }
             try await Task.sleep(for: .milliseconds(2))
         }
         throw BailianError.timeout
@@ -115,7 +236,7 @@ final class BailianStreamingSessionTests: XCTestCase {
         try await session.sendAudio(Data([1, 2, 3]))
 
         let finalTask = Task { try await session.finish(timeout: .seconds(1)) }
-        await Task.yield()
+        try await waitForFinishTask(from: transport)
         await session.handleServerText(result(id, id: 2, text: "二", isFinal: true))
         await session.handleServerText(result(id, id: 1, text: "一", isFinal: true))
         await session.handleServerText(result(id, id: 1, text: "一", isFinal: true))
@@ -142,7 +263,7 @@ final class BailianStreamingSessionTests: XCTestCase {
             try await session.sendAudio(Data([1]))
             XCTFail("Expected protocol failure")
         } catch let error as BailianError {
-            XCTAssertEqual(error, .protocolViolation("收到 task-started 前不能发送音频"))
+            XCTAssertEqual(error, .protocolViolation("result-generated 早于 task-started"))
         }
     }
 
@@ -167,7 +288,7 @@ final class BailianStreamingSessionTests: XCTestCase {
             #"{"header":{"task_id":"\#(id)","event":"task-started","future":"ignored"},"payload":{"new_field":true}}"#
         )
         let finalTask = Task { try await session.finish(timeout: .seconds(1)) }
-        await Task.yield()
+        try await waitForFinishTask(from: transport)
         await session.handleServerText(
             #"{"header":{"task_id":"\#(id)","event":"result-generated"},"payload":{"output":{"sentence":{"text":"兼容","sentence_end":true,"sentence_id":1,"future":42}}}}"#
         )
@@ -204,7 +325,7 @@ final class BailianStreamingSessionTests: XCTestCase {
         let id = try await taskID(from: transport)
         await session.handleServerText(started(id))
         let finalTask = Task { try await session.finish(timeout: .seconds(1)) }
-        await Task.yield()
+        try await waitForFinishTask(from: transport)
         await session.handleServerText(finished(id))
         do {
             _ = try await finalTask.value
@@ -247,6 +368,143 @@ final class BailianStreamingSessionTests: XCTestCase {
         let closedAfterFailure = await transport.closed()
         XCTAssertEqual(health, .invalidCredential)
         XCTAssertTrue(closedAfterFailure)
+        do {
+            try await session.sendAudio(Data([1]))
+            XCTFail("Expected original credential error")
+        } catch let error as BailianError {
+            XCTAssertEqual(error, .invalidCredential(statusCode: 401))
+        }
+        let healthAfterLateAudio = await healthStore.health
+        XCTAssertEqual(healthAfterLateAudio, .invalidCredential)
+    }
+
+    func testSessionFailureAllowsNewStreamingSessionWithoutReset() async throws {
+        for failureKind in ["noWords", "protocol", "disconnect"] {
+            let store = BailianProviderHealthStore()
+            let (session, transport) = try makeSession(healthStore: store)
+            try await session.connect(apiKey: "secret", hints: BailianRecognitionHints())
+            let id = try await taskID(from: transport)
+            await session.handleServerText(started(id))
+            var outputs = session.outputs.makeAsyncIterator()
+            _ = await outputs.next()
+            switch failureKind {
+            case "noWords":
+                await session.handleServerText(failed(id, code: "CLIENT_ERROR", message: "ASR_RESPONSE_HAVE_NO_WORDS"))
+            case "protocol":
+                await session.handleServerText(started(id))
+            default:
+                await transport.failReceive(BailianErrorMapper.mapWebSocketFailure(
+                    statusCode: 101, underlyingError: URLError(.networkConnectionLost)
+                ))
+            }
+            let output = await outputs.next()
+            guard case .failed(let original) = output else {
+                XCTFail("Expected terminal failure")
+                return
+            }
+            for _ in 0..<3 {
+                do {
+                    try await session.sendAudio(Data([1]))
+                    XCTFail("Failed session must reject late audio")
+                } catch let error as BailianError {
+                    XCTAssertEqual(error, original)
+                }
+            }
+            try await store.ensureAttemptAllowed()
+            let (next, nextTransport) = try makeSession(healthStore: store)
+            try await next.connect(apiKey: "secret", hints: BailianRecognitionHints())
+            let nextID = try await taskID(from: nextTransport)
+            await next.handleServerText(started(nextID))
+            try await next.sendAudio(Data([2]))
+            await next.handleServerText(result(nextID, id: 1, text: "恢复", isFinal: true))
+            try await next.requestFinish()
+            await next.handleServerText(finished(nextID))
+            var nextOutputs = next.outputs.makeAsyncIterator()
+            var finalText: String?
+            while let output = await nextOutputs.next() {
+                if case .final(let text) = output { finalText = text }
+            }
+            XCTAssertEqual(finalText, "恢复")
+        }
+    }
+
+    func testEmptyStreamThenNoWordsBatchDoesNotLockNextStreamingRequest() async throws {
+        try await assertEmptyStreamThenBatchAllowsNextStreamingRequest(
+            body: #"{"code":"CLIENT_ERROR","message":"ASR_RESPONSE_HAVE_NO_WORDS"}"#, expected: .emptyFinal
+        )
+    }
+
+    func testEmptyStreamThenRealEmpty400BodyAllowsNextStreamingRequest() async throws {
+        try await assertEmptyStreamThenBatchAllowsNextStreamingRequest(
+            body: "{}", expected: .requestRejected(statusCode: 400)
+        )
+    }
+
+    private func assertEmptyStreamThenBatchAllowsNextStreamingRequest(body: String, expected: BailianError) async throws {
+        let store = BailianProviderHealthStore()
+        let (silent, silentTransport) = try makeSession(healthStore: store)
+        try await silent.connect(apiKey: "secret", hints: BailianRecognitionHints())
+        let silentID = try await taskID(from: silentTransport)
+        await silent.handleServerText(started(silentID))
+        try await silent.requestFinish()
+        await silent.handleServerText(finished(silentID))
+        var outputs = silent.outputs.makeAsyncIterator()
+        _ = await outputs.next()
+        let emptyStream = await outputs.next()
+        XCTAssertEqual(emptyStream, .failed(.emptyFinal))
+
+        let batch = BailianBatchClient(
+            configuration: try BailianConfiguration(region: .chinaNorth2, workspaceID: "workspace"),
+            transport: NoWordsHTTPTransport(json: body), healthStore: store
+        )
+        do {
+            _ = try await batch.transcribe(
+                audioData: Data([0]), fileName: "silent.wav", apiKey: "secret",
+                hints: BailianRecognitionHints(), timeout: 1
+            )
+            XCTFail("Expected batch no words")
+        } catch let error as BailianError {
+            XCTAssertEqual(error, expected)
+        }
+
+        // Reuse the same health store, with no reset, saved key/configuration, or restart.
+        let (next, transport) = try makeSession(healthStore: store)
+        try await next.connect(apiKey: "secret", hints: BailianRecognitionHints())
+        let id = try await taskID(from: transport)
+        await next.handleServerText(started(id))
+        try await next.sendAudio(Data([1]))
+        await next.handleServerText(result(id, id: 1, text: "下一次正常识别", isFinal: true))
+        try await next.requestFinish()
+        await next.handleServerText(finished(id))
+        var nextOutputs = next.outputs.makeAsyncIterator()
+        _ = await nextOutputs.next()
+        _ = await nextOutputs.next()
+        let recovered = await nextOutputs.next()
+        XCTAssertEqual(recovered, .final("下一次正常识别"))
+    }
+
+    func testLateAudioDuringFinalizationDoesNotFailHealthySession() async throws {
+        let store = BailianProviderHealthStore()
+        let (session, transport) = try makeSession(healthStore: store)
+        try await session.connect(apiKey: "secret", hints: BailianRecognitionHints())
+        let id = try await taskID(from: transport)
+        await session.handleServerText(started(id))
+        await session.handleServerText(result(id, id: 1, text: "完整结果", isFinal: true))
+        try await session.requestFinish()
+        do {
+            try await session.sendAudio(Data([1]))
+            XCTFail("Finalizing session must reject late audio")
+        } catch let error as BailianError {
+            XCTAssertEqual(error, .disconnected)
+        }
+        let health = await store.health
+        XCTAssertEqual(health, .healthy)
+        await session.handleServerText(finished(id))
+        var outputs = session.outputs.makeAsyncIterator()
+        _ = await outputs.next()
+        _ = await outputs.next()
+        let final = await outputs.next()
+        XCTAssertEqual(final, .final("完整结果"))
     }
 
     func testDisconnectAndCancelRaceDoNotProduceLateFinal() async throws {

@@ -90,7 +90,7 @@ enum TranscriptionDiagnosticErrorClassifier {
             case .network: return "network"
             case .disconnected: return "disconnected"
             case .canceled: return "canceled"
-            case .invalidResponse, .emptyFinal, .protocolViolation: return "invalid-response"
+            case .invalidResponse, .emptyFinal, .protocolViolation, .requestRejected: return "invalid-response"
             case .misconfigured: return "configuration"
             }
         }

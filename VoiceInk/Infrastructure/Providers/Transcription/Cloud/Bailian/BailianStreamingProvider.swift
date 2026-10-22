@@ -7,7 +7,6 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
     private var forwardingTask: Task<Void, Never>?
     private var eventContinuation: AsyncStream<StreamingTranscriptionEvent>.Continuation?
     private var finalContinuation: AsyncStream<String>.Continuation?
-    private var startedContinuation: AsyncStream<Void>.Continuation?
     private var recognitionHints: RecognitionHintSnapshot?
 
     private(set) var transcriptionEvents: AsyncStream<StreamingTranscriptionEvent>
@@ -29,7 +28,6 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
         forwardingTask?.cancel()
         eventContinuation?.finish()
         finalContinuation?.finish()
-        startedContinuation?.finish()
     }
 
     func configureRecognitionHints(_ snapshot: RecognitionHintSnapshot?) {
@@ -65,16 +63,12 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
         )
         self.session = session
 
-        let (startedStream, startedContinuation) = AsyncStream.makeStream(of: Void.self)
-        self.startedContinuation = startedContinuation
         forwardingTask = Task { [weak self] in
             for await output in session.outputs {
                 guard let self else { return }
                 switch output {
                 case .sessionStarted:
                     self.eventContinuation?.yield(.sessionStarted)
-                    self.startedContinuation?.yield(())
-                    self.startedContinuation?.finish()
                 case .partial(let text):
                     self.eventContinuation?.yield(.partial(text: text))
                 case .committed(let text):
@@ -85,14 +79,12 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
                 case .failed(let error):
                     self.eventContinuation?.yield(.error(self.map(error)))
                     self.finalContinuation?.finish()
-                    self.startedContinuation?.finish()
                 }
             }
         }
 
         do {
-            try await session.connect(apiKey: apiKey, hints: hints)
-            try await waitForStarted(startedStream)
+            try await session.connectAndWaitForStarted(apiKey: apiKey, hints: hints)
         } catch {
             await session.cancel()
             throw map(error)
@@ -116,22 +108,6 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
         session = nil
         eventContinuation?.finish()
         finalContinuation?.finish()
-        startedContinuation?.finish()
-    }
-
-    private func waitForStarted(_ stream: AsyncStream<Void>) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                for await _ in stream { return }
-                throw BailianError.disconnected
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(15))
-                throw BailianError.timeout
-            }
-            _ = try await group.next()
-            group.cancelAll()
-        }
     }
 
     private func dictionaryHints() throws -> [String: Int] {
@@ -155,8 +131,12 @@ final class BailianStreamingProvider: StreamingTranscriptionProvider {
         case .emptyFinal: return StreamingTranscriptionError.noSpeech
         case .canceled: return StreamingTranscriptionError.cancelled
         case .invalidCredential: return StreamingTranscriptionError.invalidCredential
-        case .misconfigured(let detail), .protocolViolation(let detail), .invalidResponse(let detail):
+        case .misconfigured(let detail):
             return StreamingTranscriptionError.misconfigured(detail)
+        case .requestRejected:
+            return StreamingTranscriptionError.serverError(error.localizedDescription)
+        case .protocolViolation, .invalidResponse:
+            return StreamingTranscriptionError.connectionFailed(error.localizedDescription)
         case .rateLimited: return StreamingTranscriptionError.rateLimited
         case .server: return StreamingTranscriptionError.serviceUnavailable
         case .network(let detail): return StreamingTranscriptionError.connectionFailed(detail)

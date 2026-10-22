@@ -60,23 +60,28 @@ actor BailianStreamingSession {
     private let configuration: BailianConfiguration
     private let transport: any BailianWebSocketTransport
     private let healthStore: BailianProviderHealthStore
+    private let sendTimeout: Duration
     private let decoder = JSONDecoder()
     private var state: State = .idle
+    private var terminalError: BailianError?
     private var taskID = ""
     private var committedSentences: [Int: String] = [:]
     private var partialSentences: [Int: String] = [:]
     private var receiveTask: Task<Void, Never>?
     private var outputContinuation: AsyncStream<BailianStreamingOutput>.Continuation?
+    private var startedContinuation: AsyncStream<Void>.Continuation?
     nonisolated let outputs: AsyncStream<BailianStreamingOutput>
 
     init(
         configuration: BailianConfiguration,
         transport: any BailianWebSocketTransport,
-        healthStore: BailianProviderHealthStore = .shared
+        healthStore: BailianProviderHealthStore = .shared,
+        sendTimeout: Duration = .seconds(15)
     ) {
         self.configuration = configuration
         self.transport = transport
         self.healthStore = healthStore
+        self.sendTimeout = sendTimeout
         var continuation: AsyncStream<BailianStreamingOutput>.Continuation!
         outputs = AsyncStream { continuation = $0 }
         outputContinuation = continuation
@@ -85,6 +90,45 @@ actor BailianStreamingSession {
     deinit {
         receiveTask?.cancel()
         outputContinuation?.finish()
+        startedContinuation?.finish()
+    }
+
+    /// The deadline covers the handshake, run-task send and task-started acknowledgement.
+    /// Closing the transport is essential: cancelling a Swift task alone may leave send suspended.
+    func connectAndWaitForStarted(
+        apiKey: String, hints: BailianRecognitionHints, timeout: Duration = .seconds(15)
+    ) async throws {
+        let (started, continuation) = AsyncStream.makeStream(of: Void.self)
+        startedContinuation = continuation
+        defer {
+            startedContinuation?.finish()
+            startedContinuation = nil
+        }
+        do {
+            try await withTaskCancellationHandler {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    defer { group.cancelAll() }
+                    group.addTask {
+                        try await self.connect(apiKey: apiKey, hints: hints)
+                        for await _ in started { return }
+                        throw await self.startupFailure()
+                    }
+                    group.addTask {
+                        try await Task.sleep(for: timeout)
+                        throw await self.fail(.timeout)
+                    }
+                    _ = try await group.next()
+                }
+            } onCancel: {
+                Task { await self.cancel() }
+            }
+        } catch {
+            throw BailianErrorMapper.map(error)
+        }
+    }
+
+    private func startupFailure() -> BailianError {
+        terminalError ?? (state == .canceled ? .canceled : .disconnected)
     }
 
     func connect(apiKey: String, hints: BailianRecognitionHints) async throws {
@@ -103,24 +147,29 @@ actor BailianStreamingSession {
         do {
             try await healthStore.ensureAttemptAllowed()
             try await transport.connect(request: request)
-            try await transport.send(.text(try makeRunTaskJSON(hints: hints)))
+            if let terminalError { throw terminalError }
+            if state == .canceled { throw BailianError.canceled }
+            try await sendWithDeadline(.text(try makeRunTaskJSON(hints: hints)))
+            if let terminalError { throw terminalError }
+            if state == .canceled { throw BailianError.canceled }
             receiveTask = Task { [weak self] in
                 await self?.receiveLoop()
             }
         } catch {
-            let mapped = BailianErrorMapper.map(error)
-            state = .failed
-            await healthStore.record(mapped)
-            throw mapped
+            if state == .canceled { throw BailianError.canceled }
+            throw await fail(BailianErrorMapper.map(error))
         }
     }
 
     func sendAudio(_ data: Data) async throws {
+        if let terminalError { throw terminalError }
+        if state == .canceled { throw BailianError.canceled }
+        if state == .finished || state == .finalizing { throw BailianError.disconnected }
         guard state == .streaming else {
             throw await fail(BailianError.protocolViolation("收到 task-started 前不能发送音频"))
         }
         do {
-            try await transport.send(.data(data))
+            try await sendWithDeadline(.data(data))
         } catch {
             throw await fail(BailianErrorMapper.map(error))
         }
@@ -155,12 +204,14 @@ actor BailianStreamingSession {
     }
 
     func requestFinish() async throws {
+        if let terminalError { throw terminalError }
+        if state == .canceled { throw BailianError.canceled }
         guard state == .streaming else {
             throw BailianError.protocolViolation("当前会话不能结束")
         }
         state = .finalizing
         do {
-            try await transport.send(.text(try makeFinishTaskJSON()))
+            try await sendWithDeadline(.text(try makeFinishTaskJSON()))
         } catch {
             throw await fail(BailianErrorMapper.map(error))
         }
@@ -173,6 +224,7 @@ actor BailianStreamingSession {
         receiveTask = nil
         await transport.close()
         outputContinuation?.finish()
+        startedContinuation?.finish()
     }
 
     func handleServerText(_ text: String) async {
@@ -189,6 +241,8 @@ actor BailianStreamingSession {
                 }
                 state = .streaming
                 await healthStore.markHealthy()
+                startedContinuation?.yield(())
+                startedContinuation?.finish()
                 outputContinuation?.yield(.sessionStarted)
 
             case "result-generated":
@@ -253,14 +307,33 @@ actor BailianStreamingSession {
         }
     }
 
+    private func sendWithDeadline(_ message: BailianWebSocketMessage) async throws {
+        try await withTaskCancellationHandler {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                defer { group.cancelAll() }
+                group.addTask { [transport] in try await transport.send(message) }
+                group.addTask { [sendTimeout] in
+                    try await Task.sleep(for: sendTimeout)
+                    throw await self.fail(.timeout)
+                }
+                _ = try await group.next()
+            }
+        } onCancel: {
+            Task { await self.cancel() }
+        }
+    }
+
     @discardableResult
     private func fail(_ error: BailianError) async -> BailianError {
-        guard state != .canceled, state != .finished, state != .failed else { return error }
+        if let terminalError { return terminalError }
+        guard state != .canceled, state != .finished else { return error }
         state = .failed
+        terminalError = error
         receiveTask?.cancel()
         await healthStore.record(error)
         outputContinuation?.yield(.failed(error))
         outputContinuation?.finish()
+        startedContinuation?.finish()
         await transport.close()
         return error
     }

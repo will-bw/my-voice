@@ -1,9 +1,9 @@
 # my-voice 开发设计文档
 
-- 文档版本：v0.1
+- 文档版本：v0.2
 - 日期：2026-09-19
 - 状态：设计基线已实施；A～D 的非凭证功能已完成，真实百炼 Streaming/Batch、两级故障回退和 TextEdit/Chrome/VS Code 投递已通过，个人语料与时序指标验收状态见 [PROGRESS.md](PROGRESS.md)
-- 对应需求：[REQUIREMENTS.md](REQUIREMENTS.md) v0.2
+- 对应需求：[REQUIREMENTS.md](REQUIREMENTS.md) v0.3
 - 上游审计基线：VoiceInk [`cd1d96f`](https://github.com/Beingpax/VoiceInk/commit/cd1d96f182b03561f5ef66c6a91e511cd7409c4c)
 
 ## 1. 文档目的
@@ -62,7 +62,7 @@ Streaming partial 只显示在 Floating HUD。MVP 在收到完整 final 后一�
 | Keychain | `APIKeyManager.swift`、`KeychainService.swift` | 增加百炼键名与验证 |
 | Mode/App/URL | `Features/Modes/`、`Infrastructure/SystemIntegration/Context/` | 作为热词与上下文信号 |
 | 词典 | `Features/Dictionary/`、`VocabularyWord.swift` | 保留词条，增加自适应元数据 |
-| 纠错学习 | `Features/Dictionary/AutoLearn/` | 复用候选和审核流程 |
+| 纠错学习 | `Features/Dictionary/AutoLearn/` | 复用候选、AI 分类、人工审核或自动应用流程 |
 | 本地 SenseVoice | `TranscribeCpp` 相关模块 | 作为默认本地兜底 |
 | 历史与清理 | `Features/History/`、`Persistence/Cleanup/` | 增加录音保留策略 |
 | 指标 | `SessionMetric.swift`、`SessionMetricRecorder.swift` | 增加 Provider 路径和阶段耗时 |
@@ -136,7 +136,7 @@ flowchart TD
     Replace --> Delivery[TranscriptionDelivery]
     Delivery --> Target[目标输入控件]
     Delivery --> Learn[Auto Learn 候选]
-    Learn --> Review[人工审核]
+    Learn --> Review[AI 分类与人工审核或自动应用]
     Review --> Dictionary
     Pipeline --> Metrics[(脱敏指标)]
 ```
@@ -288,7 +288,9 @@ Provider 启动时使用一个不可变的会话快照：
 
 - CoreAudio 实时线程只负责把 `Data` 交给无阻塞队列，不执行 JSON 编码、网络等待或磁盘清理。
 - WebSocket Client 串行发送音频块，保持原始顺序。
-- 队列积压达到建议阈值 2 秒音频时，将会话标记为网络不健康并准备回退；不得静默丢弃音频块后继续声称 Streaming 成功。
+- 模式与提示准备、WebSocket 启动期间，流式服务保留最多 20 秒（640 KB）的 PCM16 积压。连接完成后不丢弃已有积压；排空至正常预算后恢复 2 秒（64 KB）的实时队列限制。
+- 超过队列预算时，将本次音频标记为不完整并准备完整文件回退；仍发送已接受的音频。只有 provider 终止或发送失败才停止网络发送，不把背压标记当作连接终止。不得静默丢弃音频后继续声称 Streaming 成功。
+- 百炼启动期限为 15 秒，覆盖握手、`run-task` 发送和 `task-started`；每次音频及 `finish-task` 发送也有 15 秒期限。超时和取消关闭 transport，释放挂起的底层 WebSocket 操作，而不是仅取消 Swift task。
 - 完整录音文件仍由 VoiceInk 录音链路生成，是 Batch 和本地回退的事实来源。
 - 断线后不尝试把已过去的实时音频重新注入新 WebSocket；直接进入完整文件回退，逻辑更确定。
 
@@ -309,7 +311,7 @@ Provider 启动时使用一个不可变的会话快照：
 - `invalidCredential`：401、403 或明确鉴权失败。
 - `misconfigured`：端点、地域、模型或请求参数无效。
 
-API Key 或地域设置改变时重置为 `unknown`。`invalidCredential` 和 `misconfigured` 状态下，后续请求不重复尝试已知失败的 Streaming，直接按用户策略走本地模式，并在设置页持续提示。
+API Key 或地域设置改变时重置为 `unknown`。`invalidCredential` 和 `misconfigured` 使用单调时钟执行 30 秒冷却，期间拒绝网络尝试；冷却到期后下一次录音允许重新探测，局部被拦截的调用不得延长期限。单次请求拒绝（包括无错误字段的 HTTP 400 `{}`）、协议异常和响应异常不视为持久配置故障，允许下一次录音重试；已知无语音业务响应只影响当前录音。
 
 ## 8. 百炼 Batch Provider 设计
 
@@ -418,12 +420,12 @@ Streaming
 
 | 记忆类型 | 来源 | 用途 |
 |---|---|---|
-| 标准词 | 用户手动添加、审核通过的候选 | 作为热词候选和正确拼写 |
-| 常见误识别 | 审核通过的纠错 | 安全替换和候选召回 |
+| 标准词 | 用户手动添加、审核通过或自动应用的候选 | 作为热词候选和正确拼写 |
+| 常见误识别 | 审核通过或自动应用的纠错 | 安全替换和候选召回 |
 | 场景范围 | App、URL、Mode、用户标签 | 缩小热词候选范围 |
 | 使用信号 | 选中、命中、最近使用 | 提高常用词排序 |
-| 正反馈 | 用户保留结果、接受纠错 | 提升置信度 |
-| 负反馈 | 改回、误吸附、拒绝候选 | 降权或停用 |
+| 正反馈 | 用户接受纠错 | 提升置信度 |
+| 负反馈 | 拒绝、Undo、改回或误吸附 | 降权或停用 |
 | 固定状态 | 用户显式固定 | 保证进入候选集 |
 
 ### 11.2 存储策略
@@ -441,7 +443,7 @@ Streaming
 | 实体 | 关键字段 |
 |---|---|
 | `AdaptiveTermMetadata` | 规范化词、语言、权重、是否固定、App/URL/Mode 标签、使用次数、正负反馈次数、最近使用时间、启用状态 |
-| `CorrectionFeedbackMetadata` | 原文规范化值、目标词规范化值、适用范围、接受次数、改回次数、最近触发时间、置信度、启用状态 |
+| `CorrectionFeedbackMetadata` | 原文规范化值、目标词规范化值、接受/拒绝/Undo/改回次数、最近触发时间、置信度、启用状态 |
 | `RecognitionAttemptMetadata` | 时间、模式、实际 Provider、是否回退、音频时长、各阶段耗时、热词数量、上下文类型、错误分类 |
 
 不保存到指标表：完整音频、完整转写文本、完整上下文、API Key、剪贴板或屏幕内容。
@@ -470,7 +472,7 @@ Streaming
 | App 精确匹配 | +30 |
 | URL/域名匹配 | +25 |
 | Mode 匹配 | +25 |
-| 近期审核通过的纠错目标 | +20 |
+| 近期审核通过或自动应用的纠错目标 | +20 |
 | 最近使用 | 0～+15 |
 | 使用频率 | 0～+10，采用对数增长 |
 | 曾发生误吸附 | 每次 -20，设下限 |
@@ -484,7 +486,7 @@ Streaming
 - 固定词优先，但仍受协议数量和合法字符校验约束。
 - API 权重默认 4；普通评分升高不会自动变成权重 5 或 50。
 - 权重 5 需要用户设置或稳定正反馈；权重 50 只能由用户显式设置。
-- 被多次改回或误吸附的词条先停用自动选择，进入人工复核。
+- 被多次改回或误吸附的词条停用自动选择。
 
 ### 11.5 学习闭环
 
@@ -494,13 +496,16 @@ flowchart LR
     Observe --> Diff[提取局部差异]
     Diff --> Filter[过滤标点/润色/大范围改写]
     Filter --> Proposal[生成学习候选]
-    Proposal --> Review{用户审核}
-    Review -->|接受| Apply[写入词库/替换规则/元数据]
-    Review -->|拒绝| Negative[记录负反馈]
+    Proposal --> Review{审核策略}
+    Review -->|Manually| Approval[AI 建议 + 用户确认]
+    Review -->|Immediately| Apply[AI 分类后自动应用]
+    Approval -->|接受| Apply
+    Approval -->|拒绝| Negative
     Apply --> Select[影响后续 Top-K]
     Select --> Result
     Result --> Revert{用户改回?}
     Revert -->|是| Negative
+    Negative[降低置信度/两次后停用]
 ```
 
 安全约束：
@@ -508,8 +513,9 @@ flowchart LR
 - 只观察本应用刚投递的目标输入控件和本次插入范围。
 - 超过观察窗口、焦点无法确认或边界锚点不唯一时放弃学习。
 - 大范围删除、整句重写、标点风格和普通措辞变化默认拒绝。
-- MVP/P1 默认人工审核，不自动批准永久规则。
-- 规则应用后再次被用户改回，必须降低置信度；达到阈值后自动停用并等待复核。
+- 用户没有修改时不会产生候选，不从未修改的 ASR 输出猜测永久规则。
+- 默认 `Manually`，由 AI 生成建议后再由用户确认；用户可显式选择 `Immediately` 自动应用 AI 分类结果。
+- 规则应用后再次被用户改回，必须降低置信度；累计两次负反馈后自动停用。
 
 ### 11.6 为什么首版不使用 Embedding
 
@@ -540,6 +546,23 @@ flowchart LR
 - 所有路径共享同一后处理管线。
 - 投递前再次核对会话 ID 和目标应用；目标已不可恢复时不向错误应用粘贴。
 - 实际 Provider、是否回退和错误路径记录在元数据中，不混入用户文本。
+
+### 12.1 百炼 Qwen Custom Provider
+
+当前个人 `Dictation` Mode 已启用 AI Enhancement，配置如下：
+
+| 项目 | 配置 |
+|---|---|
+| Provider | `Custom`，显示名 `Bailian Qwen` |
+| Endpoint | 当前 Workspace 与 Region 对应的 `https://{workspace}.{region}.maas.aliyuncs.com/compatible-mode/v1/chat/completions` |
+| Model | `qwen3.8-flash` |
+| Prompt | `语音转写润色`，使用 VoiceInk 系统指令包装 |
+| 推理 | 对百炼域名下的 Qwen 请求自动附加 `enable_thinking: false` |
+| 凭证 | 复用现有百炼 API Key，并以 Custom Provider 独立 Keychain 项保存 |
+
+`ReasoningConfig.customExtraBodyParameters` 只匹配 `*.aliyuncs.com` 且模型名前缀为 `qwen` 的 Custom Provider，避免把百炼专用参数发送给其他 OpenAI 兼容服务。对应专项测试覆盖百炼 Qwen、非百炼 Qwen 和百炼非 Qwen 三条边界。
+
+当前提示词要求最小化修改，清理无意义的“嗯/呃/那个/就是说”等填充词，修正明显 ASR、标点和断句错误，并保留 Custom Provider、Dictation、Qwen 等中英文混输标识。Auto Learn 继续以用户投递后的实际修改为候选来源，不会把模型润色结果本身直接当作永久纠错事实。
 
 ## 13. 原始录音历史与临时文件
 
@@ -823,16 +846,16 @@ HUD 不显示 API Key、完整上下文或完整热词列表。
 
 ### 阶段 C：安全学习
 
-目标：用户审核后的纠错能改善后续识别且不会把普通改写永久化。
+目标：用户审核或显式选择自动应用后的纠错能改善后续识别，且不会把普通改写永久化。
 
 任务：
 
 1. 连接 Auto Learn 候选与自适应元数据。
-2. 人工审核、撤销、改回负反馈和规则停用。
+2. 人工审核、可选自动应用、撤销、改回负反馈和规则停用。
 3. 误学习专项测试集。
 4. SenseVoice 与量化 Whisper 对照。
 
-验收：预设纠错案例分类正确；普通润色、标点和整句改写不会生成永久规则。
+验收：预设纠错案例分类正确；普通润色、标点和整句改写不会生成永久规则；Undo 和改回能够降低置信度并停用错误规则。
 
 ### 阶段 D：实测优化
 
@@ -878,7 +901,7 @@ HUD 不显示 API Key、完整上下文或完整热词列表。
 | 网络慢导致音频队列积压 | 丢音或延迟失控 | 队列阈值触发完整文件回退，不静默丢帧 |
 | Batch 与 Streaming 结果处理不一致 | 难以比较和学习 | 共享提示快照与后处理管线 |
 | 热词权重过高 | 普通词误吸附 | 默认 4、负反馈、超级热词必须用户显式设置 |
-| 普通改写被当成纠错 | 永久错误规则 | 局部边界、人工审核、撤销与改回负反馈 |
+| 普通改写被当成纠错 | 永久错误规则 | 局部边界、AI 分类、人工审核或显式自动应用、Undo 与改回负反馈 |
 | 本地模型首次加载慢 | 回退体验差 | HUD 明示加载；实测后决定短暂缓存窗口 |
 | SwiftData schema 演进 | 历史数据损坏 | 侧表、迁移测试、失败停止写入 |
 | 上游更新冲突 | 维护成本上升 | 新增模块优先、固定 SHA、独立上游导入提交 |
@@ -887,7 +910,7 @@ HUD 不显示 API Key、完整上下文或完整热词列表。
 
 ## 23. 基线与外部输入检查表
 
-- [x] 需求文档 v0.2 和本文设计基线已作为 Goal 的实施约束。
+- [x] 需求文档 v0.3 已确认；当前 Auto Learn 闭环与百炼文本润色补充均已对齐实现和验证边界。
 - [x] 当前文档先形成独立本地提交。
 - [x] 再次验证 VoiceInk 固定提交可获取且 LICENSE 未变化。
 - [x] 在目标 Mac 上记录 Xcode、macOS 和芯片信息。

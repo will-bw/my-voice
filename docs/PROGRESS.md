@@ -184,6 +184,16 @@
 - 当前 Mac 的真实 store 已备份到 `~/Library/Application Support/com.will.myvoice/MigrationBackups/C-20260919-162603` 后原地迁移；可见规则数量保持为 0，侧表创建成功，签名应用已重新启动。
 - SenseVoice Small 继续作为默认本地模型；与 Whisper Large v3 Turbo Quantized 的同语料对照等待个人真实语料和对应模型结果，不据主观判断改默认值。
 
+## 百炼文本润色（2026-09-19，已启用）
+
+- 使用当前百炼 Workspace 的 OpenAI 兼容端点新增 `Bailian Qwen` Custom Provider；API Key 复用既有百炼凭证并写入独立本机 Keychain 项，没有输出或写入仓库。
+- 同一段合成语音稿、显式关闭思考的单次实测：`qwen3.7-flash` 0.919 秒，仍保留“嗯/呃”；`qwen3.8-flash` 1.019 秒，去除口头赘词且保持原意；`qwen3.7-plus` 1.327 秒，结果没有明显超过 3.8 Flash。该小样本只用于本机初选，不替代个人语料规模评测。
+- 结合官方北京地域价格、任务复杂度和上述实测，当前选择 `qwen3.8-flash`；它比 3.7 Flash 单价高，但短文本单次费用仍远低于 0.001 元，换取了本次样本上更稳定的清理效果；Plus/Max 暂无足以抵消延迟和价格的可测收益。
+- 新增百炼 Qwen Custom Provider 请求策略，固定发送 `enable_thinking: false`；3 个专项 XCTest 通过，签名 Release 构建与 `codesign --verify --deep --strict` 通过。
+- 当前 `Dictation` 保持 `qwen-audio-3.0-asr-flash-streaming` 实时识别，同时已开启 AI Enhancement：Provider `Custom`、模型 `qwen3.8-flash`、提示词 `语音转写润色`。重启后配置和 Keychain 项复核通过。
+- 使用最终保存的 Provider、模型和提示词再次请求，耗时 1.023 秒、无 reasoning 内容，输出正确去除“嗯/呃/那个”并保留 `Custom Provider`、`Dictation`；尚未执行真人跨应用语音润色验收。
+- 本轮未修改现有 Auto Learn；继续沿用已完成的候选提取、AI 分类、人工审核或 `Immediately` 自动应用、Undo、改回负反馈和规则停用闭环。模型润色结果本身不会在缺少用户后续修改时直接沉淀为永久纠错记忆。
+
 ## D 进展
 
 - `Save Recording History` 默认关闭；完成、失败或取消后删除临时音频并清空转写记录中的音频地址。开启后可选目录、1/3/7/14/30 天和 512 MB/1/2/5 GB。

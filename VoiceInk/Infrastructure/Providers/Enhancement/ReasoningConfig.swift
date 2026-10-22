@@ -92,4 +92,17 @@ struct ReasoningConfig {
         }
         return nil
     }
+
+    /// Bailian's Qwen chat-completions endpoint supports hybrid thinking. Transcript
+    /// cleanup is a low-latency rewrite task, so explicitly disable thinking instead
+    /// of relying on a model alias's provider-side default.
+    static func customExtraBodyParameters(baseURL: URL, modelName: String) -> [String: Any]? {
+        let host = baseURL.host?.lowercased() ?? ""
+        let normalizedModel = modelName.lowercased()
+        guard host.hasSuffix(".aliyuncs.com"), normalizedModel.hasPrefix("qwen") else {
+            return nil
+        }
+
+        return ["enable_thinking": false]
+    }
 }

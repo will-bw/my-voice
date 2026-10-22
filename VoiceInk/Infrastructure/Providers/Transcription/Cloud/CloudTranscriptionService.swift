@@ -177,6 +177,8 @@ class CloudTranscriptionService: TranscriptionService {
             return .noTranscriptionReturned
         case .misconfigured, .protocolViolation, .invalidResponse:
             return .apiRequestFailed(statusCode: 400, message: error.localizedDescription)
+        case .requestRejected(let statusCode):
+            return .apiRequestFailed(statusCode: statusCode, message: error.localizedDescription)
         case .rateLimited:
             return .apiRequestFailed(statusCode: 429, message: error.localizedDescription)
         case .server(let statusCode):

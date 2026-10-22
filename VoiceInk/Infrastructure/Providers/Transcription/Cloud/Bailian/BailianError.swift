@@ -10,6 +10,7 @@ enum BailianError: LocalizedError, Equatable, Sendable {
     case disconnected
     case canceled
     case misconfigured(String)
+    case requestRejected(statusCode: Int)
     case invalidResponse(String)
     case emptyFinal
     case protocolViolation(String)
@@ -25,6 +26,7 @@ enum BailianError: LocalizedError, Equatable, Sendable {
         case .disconnected: "百炼实时连接已中断"
         case .canceled: "百炼请求已取消"
         case .misconfigured(let message): "百炼配置错误：\(message)"
+        case .requestRejected(let statusCode): "百炼拒绝了本次转写请求（HTTP \(statusCode)），下次录音将重试"
         case .invalidResponse(let message): "百炼响应无效：\(message)"
         case .emptyFinal: "百炼未返回有效识别文本"
         case .protocolViolation(let message): "百炼协议状态错误：\(message)"
@@ -44,11 +46,12 @@ enum BailianProviderHealth: Equatable, Sendable {
         switch error {
         case .invalidCredential, .missingAPIKey:
             return .invalidCredential
-        case .misconfigured, .protocolViolation, .invalidResponse:
+        case .misconfigured:
             return .misconfigured
         case .emptyFinal:
             return .healthy
-        case .rateLimited, .server, .timeout, .network, .disconnected, .canceled:
+        case .rateLimited, .server, .timeout, .network, .disconnected, .canceled,
+             .protocolViolation, .invalidResponse, .requestRejected:
             return .transientFailure
         }
     }
@@ -58,25 +61,51 @@ actor BailianProviderHealthStore {
     static let shared = BailianProviderHealthStore()
 
     private(set) var health: BailianProviderHealth = .unknown
+    private let retryDelay: Duration
+    private let now: @Sendable () -> ContinuousClock.Instant
+    private var blockedUntil: ContinuousClock.Instant?
+
+    init(
+        retryDelay: Duration = .seconds(30),
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
+    ) {
+        self.retryDelay = retryDelay
+        self.now = now
+    }
 
     func markHealthy() {
         health = .healthy
+        blockedUntil = nil
     }
 
     func record(_ error: Error) {
-        health = .classify(error)
+        let classification = BailianProviderHealth.classify(error)
+        switch classification {
+        case .invalidCredential, .misconfigured:
+            // A locally suppressed attempt must not move the recovery deadline forward.
+            if classification != health || blockedUntil == nil {
+                blockedUntil = now().advanced(by: retryDelay)
+            }
+        case .unknown, .healthy, .transientFailure:
+            blockedUntil = nil
+        }
+        health = classification
     }
 
     func reset() {
         health = .unknown
+        blockedUntil = nil
     }
 
     func ensureAttemptAllowed() throws {
+        if let blockedUntil, now() >= blockedUntil {
+            reset()
+        }
         switch health {
         case .invalidCredential:
             throw BailianError.invalidCredential(statusCode: 401)
         case .misconfigured:
-            throw BailianError.misconfigured("请先更新百炼配置")
+            throw BailianError.misconfigured("请检查百炼配置，稍后将自动重试")
         case .unknown, .healthy, .transientFailure:
             return
         }
@@ -85,13 +114,32 @@ actor BailianProviderHealthStore {
 
 enum BailianErrorMapper {
     static func map(statusCode: Int, responseBody: Data? = nil) -> BailianError {
-        switch statusCode {
-        case 401, 403: .invalidCredential(statusCode: statusCode)
-        case 429: .rateLimited
-        case 500...599: .server(statusCode: statusCode)
-        case 400...499: .misconfigured("HTTP \(statusCode)")
-        default: .invalidResponse("HTTP \(statusCode)")
+        // A silent recording is a per-request ASR result, not a configuration failure.
+        // Inspect only structured error fields; never include the raw response in logs.
+        if statusCode == 400,
+           let responseBody,
+           let body = try? JSONSerialization.jsonObject(with: responseBody) as? [String: Any],
+           isNoWords(code: body["code"] as? String, message: body["message"] as? String)
+        {
+            return .emptyFinal
         }
+        switch statusCode {
+        case 401, 403: return .invalidCredential(statusCode: statusCode)
+        case 429: return .rateLimited
+        case 500...599: return .server(statusCode: statusCode)
+        // Gateways can return {} for a silent recording. HTTP status alone cannot
+        // establish that the user's persistent configuration is invalid.
+        case 400...499: return .requestRejected(statusCode: statusCode)
+        default: return .invalidResponse("HTTP \(statusCode)")
+        }
+    }
+
+    static func mapWebSocketFailure(statusCode: Int?, underlyingError: Error) -> BailianError {
+        // task.response retains the successful upgrade response for the connection's lifetime.
+        if let statusCode, statusCode != 101, !(200...299).contains(statusCode) {
+            return map(statusCode: statusCode)
+        }
+        return map(underlyingError)
     }
 
     static func map(_ error: Error) -> BailianError {
@@ -120,6 +168,9 @@ enum BailianErrorMapper {
         {
             return .invalidCredential(statusCode: 401)
         }
+        if isNoWords(code: code, message: message) {
+            return .emptyFinal
+        }
         if combined.contains("rate") || combined.contains("throttl") || combined.contains("limit") {
             return .rateLimited
         }
@@ -127,8 +178,13 @@ enum BailianErrorMapper {
             return .timeout
         }
         if normalizedCode.contains("client") {
-            return .misconfigured("服务端拒绝了请求参数")
+            return .requestRejected(statusCode: 400)
         }
         return .server(statusCode: 500)
+    }
+
+    private static func isNoWords(code: String?, message: String?) -> Bool {
+        let marker = "ASR_RESPONSE_HAVE_NO_WORDS"
+        return code?.uppercased() == marker || message?.uppercased().contains(marker) == true
     }
 }

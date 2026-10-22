@@ -14,12 +14,28 @@ final class AudioChunkSource: @unchecked Sendable {
         var isFinished = false
     }
 
-    private let maximumBufferedBytes: Int
+    private var maximumBufferedBytes: Int
+    private var budgetAfterStartup: Int?
     private let lock = NSLock()
     private var state = State()
 
     init(maximumBufferedBytes: Int = AudioChunkSource.defaultMaximumBufferedBytes) {
         self.maximumBufferedBytes = max(1, maximumBufferedBytes)
+    }
+
+    /// Keep the startup backlog intact, then restore the normal live-send budget once drained.
+    func finishStartupBuffering() {
+        lock.withLock {
+            budgetAfterStartup = Self.defaultMaximumBufferedBytes
+            applyLiveBudgetIfDrained()
+        }
+    }
+
+    private func applyLiveBudgetIfDrained() {
+        if let budget = budgetAfterStartup, state.bufferedBytes <= budget {
+            maximumBufferedBytes = budget
+            budgetAfterStartup = nil
+        }
     }
 
     func send(_ data: Data) -> Bool {
@@ -51,6 +67,7 @@ final class AudioChunkSource: @unchecked Sendable {
                 if !state.chunks.isEmpty {
                     let chunk = state.chunks.removeFirst()
                     state.bufferedBytes -= chunk.count
+                    applyLiveBudgetIfDrained()
                     return .some(chunk)
                 }
                 if state.isFinished {
@@ -125,12 +142,16 @@ private final class StreamingMetrics: @unchecked Sendable {
 private final class StreamingFailureState: @unchecked Sendable {
     private let lock = NSLock()
     private var failure: StreamingTranscriptionError?
+    private var sendingStopped = false
 
-    func record(_ error: StreamingTranscriptionError) {
+    func record(_ error: StreamingTranscriptionError, stopsSending: Bool = true) {
         lock.withLock {
             if failure == nil { failure = error }
+            if stopsSending { sendingStopped = true }
         }
     }
+
+    var shouldStopSending: Bool { lock.withLock { sendingStopped } }
 
     func snapshot() -> StreamingTranscriptionError? {
         lock.withLock { failure }
@@ -188,10 +209,13 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
     private var provider: StreamingTranscriptionProvider?
     private var sendTask: Task<Void, Never>?
     private var eventConsumerTask: Task<Void, Never>?
-    private let chunkSource = AudioChunkSource()
+    // Mode/hint preparation and the WebSocket handshake run after recording starts.
+    // Allow a bounded 20-second startup backlog, then return to the two-second live budget.
+    private let chunkSource = AudioChunkSource(maximumBufferedBytes: 16_000 * 2 * 20)
     private var state: StreamingState = .idle
     private var committedSegments: [String] = []
     private let modelContext: ModelContext
+    private let providerFactory: ((any TranscriptionModel) -> any StreamingTranscriptionProvider)?
     private let fluidAudioService: FluidAudioTranscriptionService?
     private var onPartialTranscript: ((String) -> Void)?
     private let metrics = StreamingMetrics()
@@ -204,11 +228,13 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
 
     init(
         modelContext: ModelContext, fluidAudioService: FluidAudioTranscriptionService? = nil,
-        onPartialTranscript: ((String) -> Void)? = nil
+        onPartialTranscript: ((String) -> Void)? = nil,
+        providerFactory: ((any TranscriptionModel) -> any StreamingTranscriptionProvider)? = nil
     ) {
         self.modelContext = modelContext
         self.fluidAudioService = fluidAudioService
         self.onPartialTranscript = onPartialTranscript
+        self.providerFactory = providerFactory
     }
 
     deinit {
@@ -255,6 +281,7 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
         }
 
         state = .streaming
+        chunkSource.finishStartupBuffering()
         startSendLoop()
         startEventConsumer()
 
@@ -268,7 +295,7 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
         metrics.recordReceived(data.count)
         if !chunkSource.send(data) {
             metrics.recordDropped(data.count)
-            failureState.record(.audioBackpressureExceeded)
+            failureState.record(.audioBackpressureExceeded, stopsSending: false)
         }
     }
 
@@ -380,6 +407,7 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
     // MARK: - Private
 
     private func createProvider(for model: any TranscriptionModel) -> StreamingTranscriptionProvider {
+        if let providerFactory { return providerFactory(model) }
         if model.provider == .fluidAudio {
             if FluidAudioModelManager.isNemotronModel(named: model.name) {
                 return FluidAudioNemotronStreamingProvider()
@@ -416,6 +444,12 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
 
         sendTask = Task.detached {
             while let chunk = await source.next() {
+                if Task.isCancelled || failureState.shouldStopSending {
+                    metrics.recordDropped(chunk.count)
+                    source.finish()
+                    while let pending = await source.next() { metrics.recordDropped(pending.count) }
+                    return
+                }
                 do {
                     try await provider?.sendAudioChunk(chunk)
                     metrics.recordSent(chunk.count)
@@ -428,6 +462,9 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
                     } else {
                         failureState.record(.connectionFailed(desc))
                     }
+                    source.finish()
+                    while let pending = await source.next() { metrics.recordDropped(pending.count) }
+                    return
                 }
             }
         }
@@ -502,6 +539,11 @@ class StreamingTranscriptionService: StreamingTranscriptionServicing {
                 case .sessionStarted:
                     break
                 case .error(let error):
+                    if let streamingError = error as? StreamingTranscriptionError {
+                        self.failureState.record(streamingError)
+                    } else {
+                        self.failureState.record(.connectionFailed(error.localizedDescription))
+                    }
                     await MainActor.run {
                         self.logger.error("Streaming event error: \(error, privacy: .public)")
                     }

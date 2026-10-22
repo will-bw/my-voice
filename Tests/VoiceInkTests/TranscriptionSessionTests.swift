@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import XCTest
 @testable import VoiceInk
 
@@ -49,8 +50,103 @@ private final class MockTranscriptionService: TranscriptionService {
     }
 }
 
+private final class FailingStreamingProvider: StreamingTranscriptionProvider, @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private let events = AsyncStream.makeStream(of: StreamingTranscriptionEvent.self)
+    var transcriptionEvents: AsyncStream<StreamingTranscriptionEvent> { events.stream }
+    var sendCount: Int { lock.withLock { calls } }
+
+    func connect(model: any TranscriptionModel, language: String?) async throws {}
+    func sendAudioChunk(_ data: Data) async throws {
+        lock.withLock { calls += 1 }
+        throw StreamingTranscriptionError.connectionFailed("connection lost")
+    }
+    func commit() async throws { XCTFail("Failed sender must not commit") }
+    func disconnect() async { events.continuation.finish() }
+}
+
+private final class BufferedStreamingProvider: StreamingTranscriptionProvider, @unchecked Sendable {
+    private let lock = NSLock()
+    private var audio = Data()
+    private let events = AsyncStream.makeStream(of: StreamingTranscriptionEvent.self)
+    private let final = AsyncStream.makeStream(of: String.self)
+    var transcriptionEvents: AsyncStream<StreamingTranscriptionEvent> { events.stream }
+    var finalizationEvents: AsyncStream<String>? { final.stream }
+    var sentAudio: Data { lock.withLock { audio } }
+    func connect(model: any TranscriptionModel, language: String?) async throws {}
+    func sendAudioChunk(_ data: Data) async throws { lock.withLock { audio.append(data) } }
+    func commit() async throws { final.continuation.yield("完整文本"); final.continuation.finish() }
+    func disconnect() async { events.continuation.finish(); final.continuation.finish() }
+}
+
 @MainActor
 final class TranscriptionSessionTests: XCTestCase {
+    func testStartupBudgetPreservesBacklogThenRestoresLiveLimit() async {
+        let source = AudioChunkSource(maximumBufferedBytes: 128_000)
+        XCTAssertTrue(source.send(Data(repeating: 1, count: 64_000)))
+        XCTAssertTrue(source.send(Data(repeating: 2, count: 64_000)))
+        XCTAssertFalse(source.send(Data([3])))
+        source.finishStartupBuffering()
+        let first = await source.next()
+        XCTAssertEqual(first?.count, 64_000)
+        // Existing data was preserved, and the normal two-second budget is restored.
+        XCTAssertFalse(source.send(Data([3])))
+        source.finish()
+        let second = await source.next()
+        XCTAssertEqual(second, Data(repeating: 2, count: 64_000))
+        let end = await source.next()
+        XCTAssertNil(end)
+    }
+
+    func testStartupAudioLongerThanTwoSecondsIsSentAndFinalizedWithoutFallback() async throws {
+        let container = try ModelContainer(
+            for: VocabularyWord.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let provider = BufferedStreamingProvider()
+        let service = StreamingTranscriptionService(modelContext: container.mainContext, providerFactory: { _ in provider })
+        let audio = Data(repeating: 1, count: 96_000)
+        // Mode preparation can release a multi-second burst before WebSocket connection.
+        for offset in stride(from: 0, to: audio.count, by: 320) {
+            service.sendAudioChunk(audio.subdata(in: offset..<min(offset + 320, audio.count)))
+        }
+        try await service.startStreaming(model: streamingModel, context: TranscriptionRequestContext(language: "auto", prompt: nil))
+        let result = try await service.stopAndFinalize()
+        guard case .finalized("完整文本") = result else { return XCTFail("Unexpected batch fallback") }
+        XCTAssertEqual(provider.sentAudio, audio)
+    }
+
+    func testBackpressureStillSendsAcceptedAudioAndRequiresFullFileFallback() async throws {
+        let container = try ModelContainer(
+            for: VocabularyWord.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let provider = BufferedStreamingProvider()
+        let service = StreamingTranscriptionService(modelContext: container.mainContext, providerFactory: { _ in provider })
+        let audio = Data(repeating: 1, count: 640_000)
+        service.sendAudioChunk(audio)
+        service.sendAudioChunk(Data([2])) // Startup budget is bounded; this chunk is dropped.
+        try await service.startStreaming(model: streamingModel, context: TranscriptionRequestContext(language: "auto", prompt: nil))
+        do {
+            _ = try await service.stopAndFinalize()
+            XCTFail("Incomplete audio must use full-file fallback")
+        } catch let error as StreamingTranscriptionError {
+            guard case .audioBackpressureExceeded = error else { return XCTFail("Wrong error: \(error)") }
+        }
+        XCTAssertEqual(provider.sentAudio, audio, "Backpressure must not stop a healthy sender")
+    }
+
+    func testProviderFailureAfterBackpressureStillStopsSending() async throws {
+        let container = try ModelContainer(
+            for: VocabularyWord.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let provider = FailingStreamingProvider()
+        let service = StreamingTranscriptionService(modelContext: container.mainContext, providerFactory: { _ in provider })
+        for _ in 0..<3 { service.sendAudioChunk(Data(repeating: 1, count: 320_000)) }
+        try await service.startStreaming(model: streamingModel, context: TranscriptionRequestContext(language: "auto", prompt: nil))
+        do { _ = try await service.stopAndFinalize(); XCTFail("Expected fallback") } catch {}
+        XCTAssertEqual(provider.sendCount, 1)
+    }
+
     func testAudioChunkSourceEnforcesByteBudgetAndDrainsBeforeFinish() async {
         XCTAssertEqual(AudioChunkSource.defaultMaximumBufferedBytes, 64_000)
         let source = AudioChunkSource(maximumBufferedBytes: 4)
@@ -72,6 +168,33 @@ final class TranscriptionSessionTests: XCTestCase {
         XCTAssertEqual(drainedThird, Data([5]))
         XCTAssertNil(finished)
         XCTAssertFalse(source.send(Data([6])))
+    }
+
+    func testStreamingSenderStopsAfterFirstFailureAndRejectsQueuedChunks() async throws {
+        let container = try ModelContainer(
+            for: VocabularyWord.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let provider = FailingStreamingProvider()
+        let service = StreamingTranscriptionService(
+            modelContext: container.mainContext, providerFactory: { _ in provider }
+        )
+        // Queue before connecting so the failure always has pending chunks behind it.
+        for _ in 0..<5 { service.sendAudioChunk(Data([1, 2])) }
+        try await service.startStreaming(
+            model: streamingModel, context: TranscriptionRequestContext(language: "auto", prompt: nil)
+        )
+        do {
+            _ = try await service.stopAndFinalize()
+            XCTFail("Expected original send failure")
+        } catch let error as StreamingTranscriptionError {
+            guard case .connectionFailed("connection lost") = error else {
+                XCTFail("Expected original connection error, got \(error)")
+                return
+            }
+        }
+        XCTAssertEqual(provider.sendCount, 1)
+        service.sendAudioChunk(Data([3, 4]))
+        XCTAssertEqual(provider.sendCount, 1)
     }
 
     private let streamingModel = CloudModel(

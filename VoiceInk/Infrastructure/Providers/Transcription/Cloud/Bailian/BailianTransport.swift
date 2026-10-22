@@ -81,7 +81,9 @@ final class BailianURLSessionWebSocketTransport: BailianWebSocketTransport, @unc
     }
 
     private func mappedHandshakeError(task: URLSessionWebSocketTask, fallback: Error) -> Error {
-        guard let statusCode = (task.response as? HTTPURLResponse)?.statusCode else { return fallback }
-        return BailianErrorMapper.map(statusCode: statusCode)
+        BailianErrorMapper.mapWebSocketFailure(
+            statusCode: (task.response as? HTTPURLResponse)?.statusCode,
+            underlyingError: fallback
+        )
     }
 }

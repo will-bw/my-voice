@@ -70,8 +70,9 @@ actor BailianBatchClient {
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BailianError.missingAPIKey
         }
+        // A locally blocked call is not a new remote failure.
+        try await healthStore.ensureAttemptAllowed()
         do {
-            try await healthStore.ensureAttemptAllowed()
             let request = try makeRequest(
                 audioData: audioData,
                 fileName: fileName,

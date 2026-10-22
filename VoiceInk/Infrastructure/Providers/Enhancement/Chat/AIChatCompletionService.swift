@@ -75,6 +75,10 @@ extension AIService {
                 messages: messages,
                 systemPrompt: systemPrompt,
                 temperature: 0.3,
+                extraBody: ReasoningConfig.customExtraBodyParameters(
+                    baseURL: baseURL,
+                    modelName: customConfiguration.modelName
+                ),
                 timeout: timeout
             )
         case .voiceInkRefine:
