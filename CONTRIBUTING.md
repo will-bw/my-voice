@@ -1,3 +1,9 @@
+# Contributing to my-voice
+
+This is an independent modified version of [VoiceInk](https://github.com/Beingpax/VoiceInk), maintained by [will-bw](https://github.com/will-bw). Report issues for this version in [will-bw/my-voice](https://github.com/will-bw/my-voice/issues).
+
+The guidance below is retained from upstream as a development reference; references to the VoiceInk community and its contribution policy describe the upstream project. This fork currently prioritizes issue reports and does not promise pull request review. Contributions to this fork must be compatible with its GNU GPL v3 license.
+
 # Contributing to VoiceInk
 
 First off, thank you for considering contributing to VoiceInk! It's people like you that make VoiceInk such a great tool.

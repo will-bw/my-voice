@@ -108,3 +108,12 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Private dictation data and local credentials
+personal-hotwords*.json
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision

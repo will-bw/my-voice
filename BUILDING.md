@@ -1,4 +1,4 @@
-# Building VoiceInk
+# Building my-voice
 
 ## Requirements
 
@@ -40,6 +40,10 @@ make local LOCAL_CODESIGN_IDENTITY=-
 
 Local builds use an independent bundle identifier, Keychain service, Application Support directory, and output name. They do not include iCloud dictionary sync, official VoiceInk automatic updates, or commercial license network calls. Apple Development signing gives rebuilt apps a stable designated requirement; ad-hoc builds may require macOS permissions again after rebuilding.
 
+## Upstream development and release commands
+
+The following commands are inherited from VoiceInk. `make release` and `make release-setup` are not configured as a supported my-voice distribution workflow; use `make local` for this fork. Publishing binaries requires your own signing/notarization and update infrastructure, plus the applicable license and corresponding-source obligations.
+
 ## Other Commands
 
 - `make check` — verify required tools
@@ -68,4 +72,4 @@ Select the `VoiceInk` scheme. Run builds `VoiceInk Dev.app`; Archive uses Releas
 - Run `make whisper` if the framework is missing.
 - If several Apple Development identities exist, set `LOCAL_CODESIGN_IDENTITY` explicitly.
 - If Xcode shows an Apple Development certificate but `security find-identity -v -p codesigning` reports no valid identities, install the matching Apple WWDR intermediate certificate from the [Apple PKI page](https://www.apple.com/certificateauthority/). Apple Development certificates currently use Worldwide Developer Relations G3.
-- For additional help, open a [GitHub issue](https://github.com/Beingpax/VoiceInk/issues).
+- For additional help, open a [GitHub issue](https://github.com/will-bw/my-voice/issues).
