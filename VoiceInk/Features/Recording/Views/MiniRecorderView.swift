@@ -62,7 +62,8 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
 
             RecorderStatusDisplay(
                 currentState: stateProvider.recordingState,
-                audioMeterProvider: recorder.audioMeterSnapshot
+                audioMeterProvider: recorder.audioMeterSnapshot,
+                includesSystemAudio: recorder.isCapturingSystemAudio
             )
 
             Spacer(minLength: 0)

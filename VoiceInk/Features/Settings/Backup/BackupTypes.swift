@@ -99,6 +99,7 @@ struct GeneralBackup: Codable {
     let deniedRecognitionContextHosts: [String]?
 
     let isSystemMuteEnabled: Bool?
+    var includeSystemAudio: Bool? = nil
     let isPauseMediaEnabled: Bool?
     let audioResumptionDelay: Double?
     let isTextFormattingEnabled: Bool?

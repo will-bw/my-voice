@@ -1,6 +1,126 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Record System Audio with Microphone": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同时录制系统声音"
+          }
+        }
+      }
+    },
+    "System Audio": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统声音"
+          }
+        }
+      }
+    },
+    "System Audio Permission": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统声音录制权限"
+          }
+        }
+      }
+    },
+    "Allow System Audio Recording": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授权系统声音录制"
+          }
+        }
+      }
+    },
+    "Allowed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授权"
+          }
+        }
+      }
+    },
+    "Records your microphone and audio from other apps, including meetings with headphones. Muting and pausing are disabled. Changes apply to the next recording.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同时录制麦克风与其他应用的声音，戴耳机开会也能录到双方。此模式下不会自动静音或暂停媒体。设置在下次录音时生效。"
+          }
+        }
+      }
+    },
+    "Turn on to record both sides of a meeting. Requires screen and system audio recording permission. Other apps' audio is included in transcription.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启后可录制会议双方的声音，需要屏幕与系统音频录制权限。其他应用播放的声音也会参与转写。"
+          }
+        }
+      }
+    },
+    "Recording Microphone and System Audio": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在录制麦克风和系统声音"
+          }
+        }
+      }
+    },
+    "System audio could not be processed. Start a new recording.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统声音处理失败，请重新开始录音。"
+          }
+        }
+      }
+    },
+    "Allow screen and system audio recording in System Settings, then try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在系统设置中允许屏幕与系统音频录制，然后重试。"
+          }
+        }
+      }
+    },
+    "No display is available for system audio capture.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用于采集系统声音的显示器。"
+          }
+        }
+      }
+    },
+    "System audio recording stopped. The audio captured so far has been saved for transcription.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统声音采集中断，已结束录音并保留中断前的音频用于转写。"
+          }
+        }
+      }
+    },
     "" : {
       "localizations" : {
         "de" : {

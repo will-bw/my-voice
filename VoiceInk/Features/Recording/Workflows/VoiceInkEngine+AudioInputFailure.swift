@@ -29,6 +29,13 @@ extension VoiceInkEngine {
     func recordingAudioFailure(
         for error: Error
     ) -> (title: String, actionLabel: String, action: () -> Void)? {
+        if error is MixedAudioError || (error as NSError).domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain" {
+            return (
+                error.localizedDescription,
+                String(localized: "Audio Settings"),
+                AudioSetupNavigator.openAudioSettings
+            )
+        }
         guard let recorderError = error as? Recorder.RecorderError,
             case .noUsableMicrophone(let internalMicrophoneBlockedByClosedLid) = recorderError
         else {

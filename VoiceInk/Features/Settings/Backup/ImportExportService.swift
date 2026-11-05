@@ -190,6 +190,7 @@ class ImportExportService {
                 forKey: ContextPrivacyPolicy.deniedHostsDefaultsKey),
 
             isSystemMuteEnabled: mediaController.isSystemMuteEnabled,
+            includeSystemAudio: AudioCaptureSettings.includesSystemAudio(),
             isPauseMediaEnabled: playbackController.isPauseMediaEnabled,
             audioResumptionDelay: mediaController.audioResumptionDelay,
             isTextFormattingEnabled: UserDefaults.standard.bool(forKey: keyIsTextFormattingEnabled),

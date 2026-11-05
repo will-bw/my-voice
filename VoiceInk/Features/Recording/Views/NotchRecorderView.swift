@@ -198,7 +198,8 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
                 RecorderStatusDisplay(
                     currentState: stateProvider.recordingState,
                     audioMeterProvider: recorder.audioMeterSnapshot,
-                    menuBarHeight: notchHeight
+                    menuBarHeight: notchHeight,
+                    includesSystemAudio: recorder.isCapturingSystemAudio
                 )
             }
             .padding(.trailing, sideEdgePadding)

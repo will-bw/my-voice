@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import os
 import ScreenCaptureKit
 import Vision
 
@@ -20,21 +21,9 @@ class ScreenCaptureService: ObservableObject {
     nonisolated private static let focusedWindowFrameTolerance: CGFloat = 96
 
     static func requestScreenCapturePermissionRegistration() async -> Bool {
-        if CGPreflightScreenCaptureAccess() {
-            return true
-        }
-
-        if CGRequestScreenCaptureAccess() {
-            return true
-        }
-
-        do {
+        await ScreenCapturePermissionProbe.isAvailable {
             _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        } catch {
-            return CGPreflightScreenCaptureAccess()
         }
-
-        return CGPreflightScreenCaptureAccess()
     }
 
     func captureAndExtractText() async -> String? {
@@ -317,5 +306,22 @@ class ScreenCaptureService: ObservableObject {
 
     private func normalized(_ text: String?) -> String? {
         Self.normalized(text)
+    }
+}
+
+/// Use the same API as capture. A successful ScreenCaptureKit request must not be
+/// overridden by Core Graphics' separate preflight snapshot.
+enum ScreenCapturePermissionProbe {
+    @MainActor
+    static func isAvailable(check: () async throws -> Void) async -> Bool {
+        do {
+            try await check()
+            return true
+        } catch {
+            let error = error as NSError
+            Logger(subsystem: "com.prakashjoshipax.voiceink", category: "ScreenCapturePermission")
+                .error("ScreenCaptureKit access check failed domain=\(error.domain, privacy: .public) code=\(error.code)")
+            return false
+        }
     }
 }

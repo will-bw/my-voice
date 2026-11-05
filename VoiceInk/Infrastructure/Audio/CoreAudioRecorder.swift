@@ -41,6 +41,7 @@ final class CoreAudioRecorder: @unchecked Sendable {
         var frameCount: UInt32 = 0
         var channelCount: UInt32 = 0
         var sampleRate: Double = 0
+        var hostTime: Double = 0
 
         init(capacitySamples: UInt32) {
             self.capacitySamples = capacitySamples
@@ -58,6 +59,7 @@ final class CoreAudioRecorder: @unchecked Sendable {
 
     private var audioUnit: AudioUnit?
     private var audioFile: ExtAudioFileRef?
+    private var mixedAudioWriter: MixedAudioWriter?
 
     private var isRecording = false
     private var isAudioUnitInitialized = false
@@ -178,17 +180,19 @@ final class CoreAudioRecorder: @unchecked Sendable {
     }
 
     /// Starts recording from the specified device to the given URL (WAV format)
-    func startRecording(toOutputFile url: URL, deviceID: AudioDeviceID) throws {
+    func startRecording(toOutputFile url: URL, deviceID: AudioDeviceID,
+                        mixedAudioWriter: MixedAudioWriter? = nil) throws {
         // Stop any existing recording
         stopRecording()
 
         try prepare(deviceID: deviceID)
+        self.mixedAudioWriter = mixedAudioWriter
 
         do {
             recordingURL = url
 
             // The output file is per recording; the AUHAL setup above is reused.
-            try createOutputFile(at: url)
+            if mixedAudioWriter == nil { try createOutputFile(at: url) }
             resetAudioProcessingState()
 
             try startAudioUnit()
@@ -196,6 +200,7 @@ final class CoreAudioRecorder: @unchecked Sendable {
             isRecording = false
             recordingActive.store(false, ordering: .releasing)
             closeOutputFile()
+            self.mixedAudioWriter = nil
             recordingURL = nil
             teardownPreparedAudioUnit()
             throw error
@@ -230,6 +235,7 @@ final class CoreAudioRecorder: @unchecked Sendable {
         logDroppedInputBufferCounters(context: "stop")
 
         closeOutputFile()
+        mixedAudioWriter = nil
         recordingURL = nil
 
         resetMeters()
@@ -844,7 +850,10 @@ final class CoreAudioRecorder: @unchecked Sendable {
         enqueueInputBuffer(
             &bufferList,
             frameCount: inNumberFrames,
-            inputSampleRate: inputSampleRate
+            inputSampleRate: inputSampleRate,
+            hostTime: AVAudioTime.seconds(forHostTime:
+                inTimeStamp.pointee.mFlags.contains(.hostTimeValid)
+                    ? inTimeStamp.pointee.mHostTime : mach_absolute_time())
         )
 
         return noErr
@@ -882,7 +891,8 @@ final class CoreAudioRecorder: @unchecked Sendable {
     private func enqueueInputBuffer(
         _ inputBuffer: inout AudioBufferList,
         frameCount: UInt32,
-        inputSampleRate: Double
+        inputSampleRate: Double,
+        hostTime: Double
     ) {
         guard !inputBufferSlots.isEmpty,
             let inputData = inputBuffer.mBuffers.mData
@@ -909,6 +919,7 @@ final class CoreAudioRecorder: @unchecked Sendable {
         slot.frameCount = frameCount
         slot.channelCount = channelCount
         slot.sampleRate = inputSampleRate
+        slot.hostTime = hostTime
 
         let inputSamples = inputData.assumingMemoryBound(to: Float32.self)
         slot.samples.update(from: inputSamples, count: Int(sampleCount))
@@ -949,7 +960,8 @@ final class CoreAudioRecorder: @unchecked Sendable {
                 inputSamples: slot.samples,
                 frameCount: slot.frameCount,
                 inputChannels: slot.channelCount,
-                inputSampleRate: slot.sampleRate
+                inputSampleRate: slot.sampleRate,
+                hostTime: slot.hostTime
             )
             inputReadIndex.store(readIndex + 1, ordering: .releasing)
             processedBuffers += 1
@@ -999,8 +1011,15 @@ final class CoreAudioRecorder: @unchecked Sendable {
         inputSamples: UnsafeMutablePointer<Float32>,
         frameCount: UInt32,
         inputChannels: UInt32,
-        inputSampleRate: Double
+        inputSampleRate: Double,
+        hostTime: Double
     ) {
+        if let mixedAudioWriter {
+            mixedAudioWriter.appendMicrophone(
+                Array(UnsafeBufferPointer(start: inputSamples, count: Int(frameCount * inputChannels))),
+                sampleRate: inputSampleRate, channels: inputChannels, hostTime: hostTime)
+            return
+        }
         guard let file = audioFile else { return }
 
         let outputSampleRate = outputFormat.mSampleRate

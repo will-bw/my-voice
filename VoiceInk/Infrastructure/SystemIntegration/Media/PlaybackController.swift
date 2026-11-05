@@ -80,10 +80,11 @@ class PlaybackController: ObservableObject {
         mediaController.pause()
     }
 
-    func resumeMedia() async {
+    func resumeMedia(immediately: Bool = false) async {
+        resumeTask?.cancel()
         let shouldResume = wasPlayingWhenRecordingStarted
         let originalBundleId = originalMediaAppBundleId
-        let delay = MediaController.shared.audioResumptionDelay
+        let delay = immediately ? 0 : MediaController.shared.audioResumptionDelay
 
         defer {
             wasPlayingWhenRecordingStarted = false

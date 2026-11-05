@@ -20,10 +20,12 @@ extension Recorder {
         to url: URL,
         deviceID: AudioDeviceID
     ) async throws {
+        let mixedAudioWriter = self.mixedAudioWriter
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             audioSetupQueue.async {
                 do {
-                    try recorder.startRecording(toOutputFile: url, deviceID: deviceID)
+                    try recorder.startRecording(toOutputFile: url, deviceID: deviceID,
+                                                mixedAudioWriter: mixedAudioWriter)
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)

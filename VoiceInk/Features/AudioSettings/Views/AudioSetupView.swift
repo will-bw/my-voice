@@ -1,4 +1,5 @@
 import CoreAudio
+import CoreGraphics
 import SwiftUI
 
 struct AudioSetupView: View {
@@ -7,6 +8,9 @@ struct AudioSetupView: View {
     @ObservedObject private var playbackController = PlaybackController.shared
     @State private var microphoneSourceBeforePriorityOrder: MicrophoneSourceSelection = .systemDefault
     @State private var refreshIconRotation = 0.0
+    @AppStorage(AudioCaptureSettings.includeSystemAudioKey) private var includeSystemAudio = false
+    @State private var hasSystemAudioPermission = false
+    @State private var isRequestingSystemAudioPermission = false
 
     var body: some View {
         Form {
@@ -14,6 +18,36 @@ struct AudioSetupView: View {
                 inputSettingsRows
             } header: {
                 Text("Audio Input")
+            }
+
+            Section {
+                Toggle("Record System Audio with Microphone", isOn: $includeSystemAudio)
+                if includeSystemAudio {
+                    if hasSystemAudioPermission {
+                        LabeledContent("System Audio Permission", value: String(localized: "Allowed"))
+                    } else {
+                        Button("Allow System Audio Recording") {
+                            isRequestingSystemAudioPermission = true
+                            Task { @MainActor in
+                                hasSystemAudioPermission = await ScreenCaptureService.requestScreenCapturePermissionRegistration()
+                                isRequestingSystemAudioPermission = false
+                                if !hasSystemAudioPermission,
+                                   let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                        }
+                        .disabled(isRequestingSystemAudioPermission)
+                    }
+                }
+            } header: {
+                Text("System Audio")
+            } footer: {
+                if includeSystemAudio {
+                    Text("Records your microphone and audio from other apps, including meetings with headphones. Muting and pausing are disabled. Changes apply to the next recording.")
+                } else {
+                    Text("Turn on to record both sides of a meeting. Requires screen and system audio recording permission. Other apps' audio is included in transcription.")
+                }
             }
 
             if usesPriorityOrder {
@@ -32,8 +66,10 @@ struct AudioSetupView: View {
 
             Section {
                 Toggle("Mute Audio While Recording", isOn: $mediaController.isSystemMuteEnabled)
+                    .disabled(includeSystemAudio)
 
                 Toggle("Pause Media While Recording", isOn: $playbackController.isPauseMediaEnabled)
+                    .disabled(includeSystemAudio)
 
                 LabeledContent("Resume Delay") {
                     resumeDelayMenu
@@ -49,6 +85,16 @@ struct AudioSetupView: View {
         .onAppear {
             if !usesPriorityOrder {
                 microphoneSourceBeforePriorityOrder = currentMicrophoneSource
+            }
+        }
+        .task(id: includeSystemAudio) {
+            guard includeSystemAudio else { return }
+            hasSystemAudioPermission = await ScreenCaptureService.requestScreenCapturePermissionRegistration()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard includeSystemAudio, !isRequestingSystemAudioPermission else { return }
+            Task { @MainActor in
+                hasSystemAudioPermission = await ScreenCaptureService.requestScreenCapturePermissionRegistration()
             }
         }
     }
@@ -292,7 +338,7 @@ struct AudioSetupView: View {
     }
 
     private var canEditResumeDelay: Bool {
-        mediaController.isSystemMuteEnabled || playbackController.isPauseMediaEnabled
+        !includeSystemAudio && (mediaController.isSystemMuteEnabled || playbackController.isPauseMediaEnabled)
     }
 
     private func movePrioritizedDeviceUp(_ device: PrioritizedDevice) {

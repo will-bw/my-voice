@@ -342,15 +342,18 @@ struct RecorderStatusDisplay: View {
     let currentState: RecordingState
     let audioMeterProvider: () -> AudioMeter
     let menuBarHeight: CGFloat?
+    let includesSystemAudio: Bool
 
     init(
         currentState: RecordingState,
         audioMeterProvider: @escaping () -> AudioMeter,
-        menuBarHeight: CGFloat? = nil
+        menuBarHeight: CGFloat? = nil,
+        includesSystemAudio: Bool = false
     ) {
         self.currentState = currentState
         self.audioMeterProvider = audioMeterProvider
         self.menuBarHeight = menuBarHeight
+        self.includesSystemAudio = includesSystemAudio
     }
 
     var body: some View {
@@ -360,13 +363,22 @@ struct RecorderStatusDisplay: View {
             } else if currentState == .transcribing {
                 ProcessingStatusDisplay(mode: .transcribing, color: .white).transition(.opacity)
             } else if currentState == .recording {
-                AudioVisualizer(
-                    audioMeterProvider: audioMeterProvider,
-                    color: .white,
-                    isActive: true
-                )
-                    .scaleEffect(y: menuBarHeight != nil ? min(1.0, (menuBarHeight! - 8) / 25) : 1.0, anchor: .center)
-                    .transition(.opacity)
+                HStack(spacing: 5) {
+                    if includesSystemAudio {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white)
+                            .help("Recording Microphone and System Audio")
+                            .accessibilityLabel("Recording Microphone and System Audio")
+                    }
+                    AudioVisualizer(
+                        audioMeterProvider: audioMeterProvider,
+                        color: .white,
+                        isActive: true
+                    )
+                        .scaleEffect(y: menuBarHeight != nil ? min(1.0, (menuBarHeight! - 8) / 25) : 1.0, anchor: .center)
+                        .transition(.opacity)
+                }
             } else {
                 StaticVisualizer(color: .white)
                     .scaleEffect(y: menuBarHeight != nil ? min(1.0, (menuBarHeight! - 8) / 25) : 1.0, anchor: .center)

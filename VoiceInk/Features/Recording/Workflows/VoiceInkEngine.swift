@@ -157,6 +157,19 @@ class VoiceInkEngine: NSObject, ObservableObject {
 
         super.init()
 
+        recorder.onCaptureFailure = { [weak self] error in
+            guard let self else { return }
+            self.logger.error("Mixed audio capture interrupted: \(error, privacy: .public)")
+            Task { @MainActor [weak self] in
+                guard let self, self.recordingState == .recording else { return }
+                // Finalize and transcribe the audio already captured instead of silently losing one side.
+                NotificationManager.shared.showNotification(
+                    title: String(localized: "System audio recording stopped. The audio captured so far has been saved for transcription."),
+                    type: .error, duration: 10)
+                await self.toggleRecord()
+            }
+        }
+
         setupNotifications()
         removeStaleTemporaryRecordingsIfNeeded()
         createRecordingsDirectoryIfNeeded()

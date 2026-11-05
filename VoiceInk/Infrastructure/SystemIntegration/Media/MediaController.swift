@@ -47,12 +47,13 @@ final class MediaController: ObservableObject {
         return success
     }
 
-    func unmuteSystemAudio() async {
+    func unmuteSystemAudio(immediately: Bool = false) async {
         guard isSystemMuteEnabled else { return }
 
-        let delay = audioResumptionDelay
+        let delay = immediately ? 0 : audioResumptionDelay
         let shouldUnmute = didMuteAudio && !wasAudioMutedBeforeRecording
         let myGeneration = muteGeneration
+        unmuteTask?.cancel()
 
         let task = Task { [weak self] in
             if delay > 0 {

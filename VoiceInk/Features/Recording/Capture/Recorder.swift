@@ -7,6 +7,13 @@ import os
 @MainActor
 class Recorder: NSObject, ObservableObject {
     var recorder: CoreAudioRecorder?
+    var mixedAudioWriter: MixedAudioWriter?
+    private var systemAudioCapture: SystemAudioCapture?
+    private var captureSessionID: UUID?
+    private var captureFailure: Error?
+    private var recordingHasStarted = false
+    @Published private(set) var isCapturingSystemAudio = false
+    var onCaptureFailure: ((Error) -> Void)?
     let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "Recorder")
     let deviceManager = AudioDeviceManager.shared
     private var lifecycleCancellable: AnyCancellable?
@@ -26,7 +33,10 @@ class Recorder: NSObject, ObservableObject {
     /// Audio chunk callback for streaming. Can be updated while recording;
     /// changes are forwarded to the live CoreAudioRecorder.
     var onAudioChunk: ((_ data: Data) -> Void)? {
-        didSet { recorder?.onAudioChunk = onAudioChunk }
+        didSet {
+            recorder?.onAudioChunk = onAudioChunk
+            mixedAudioWriter?.setAudioChunkCallback(onAudioChunk)
+        }
     }
 
     enum RecorderError: Error {
@@ -60,14 +70,46 @@ class Recorder: NSObject, ObservableObject {
 
         audioRestorationTask?.cancel()
         audioRestorationTask = nil
-        pauseMedia()
-        muteSystemAudio()
+        let sessionID = UUID()
+        captureSessionID = sessionID
+        captureFailure = nil
+        recordingHasStarted = false
+        let policy = RecordingAudioPolicy(includesSystemAudio: AudioCaptureSettings.includesSystemAudio())
+        if policy.allowsMutingAndPausing {
+            pauseMedia()
+            muteSystemAudio()
+        } else {
+            await mediaController.unmuteSystemAudio(immediately: true)
+            await playbackController.resumeMedia(immediately: true)
+        }
 
         let coreAudioRecorder = recorder ?? CoreAudioRecorder()
         coreAudioRecorder.onAudioChunk = onAudioChunk
         recorder = coreAudioRecorder
 
         do {
+            guard captureSessionID == sessionID else { throw CancellationError() }
+            try Task.checkCancellation()
+            if policy.includesSystemAudio {
+                let failureHandler: (Error) -> Void = { [weak self] error in
+                    Task { @MainActor in
+                        guard let self, self.captureSessionID == sessionID, self.captureFailure == nil else { return }
+                        self.captureFailure = error
+                        if self.recordingHasStarted { self.onCaptureFailure?(error) }
+                    }
+                }
+                let writer = try MixedAudioWriter(url: url, onAudioChunk: onAudioChunk, onFailure: failureHandler)
+                mixedAudioWriter = writer
+                let capture = SystemAudioCapture(writer: writer, onFailure: failureHandler)
+                systemAudioCapture = capture
+                try await capture.start()
+                guard captureSessionID == sessionID else {
+                    await capture.stop()
+                    throw CancellationError()
+                }
+                try Task.checkCancellation()
+                writer.begin()
+            }
             do {
                 try await startHardwareRecording(coreAudioRecorder, to: url, deviceID: deviceID)
             } catch {
@@ -85,6 +127,11 @@ class Recorder: NSObject, ObservableObject {
                 try await startHardwareRecording(coreAudioRecorder, to: url, deviceID: fallbackDeviceID)
             }
 
+            guard captureSessionID == sessionID else { throw CancellationError() }
+            if let captureFailure { throw captureFailure }
+            recordingHasStarted = true
+            isCapturingSystemAudio = policy.includesSystemAudio
+
             deviceManager.recordingDidStart(deviceID: deviceID)
             showRecordingDeviceNotification(for: deviceID, resolution: resolution)
             UserDefaults.standard.set(String(deviceID), forKey: "lastUsedMicrophoneDeviceID")
@@ -93,23 +140,42 @@ class Recorder: NSObject, ObservableObject {
             logger.error(
                 "Failed to start recording deviceID=\(deviceID, privacy: .public) file=\(url.lastPathComponent, privacy: .public) error=\(error, privacy: .public)"
             )
-            await stopRecording()
+            if captureSessionID == sessionID { await stopRecording() }
+            if policy.includesSystemAudio { throw error }
             throw RecorderError.couldNotStartRecording
         }
     }
 
     func stopRecording() async {
+        let stopTime = MixedAudioWriter.hostTime
+        captureSessionID = nil
+        recordingHasStarted = false
+        isCapturingSystemAudio = false
         audioMuteTask?.cancel()
         audioMuteTask = nil
         mediaPauseTask?.cancel()
         mediaPauseTask = nil
         // Capture current recorder to stop it on the serial hardware queue.
         let currentRecorder = self.recorder
+        let currentCapture = systemAudioCapture
+        let currentWriter = mixedAudioWriter
+        systemAudioCapture = nil
+        mixedAudioWriter = nil
 
         await withCheckedContinuation { continuation in
             audioSetupQueue.async {
                 currentRecorder?.stopRecording()
                 continuation.resume()
+            }
+        }
+        await currentCapture?.stop()
+        // Both source queues are drained; finalize and deliver the remaining mixed tail.
+        if let currentWriter {
+            await withCheckedContinuation { continuation in
+                audioSetupQueue.async {
+                    currentWriter.finish(at: stopTime)
+                    continuation.resume()
+                }
             }
         }
         onAudioChunk = nil
@@ -181,8 +247,8 @@ class Recorder: NSObject, ObservableObject {
         }
 
         // Sample audio levels (thread-safe read)
-        let averagePower = recorder.averagePower
-        let peakPower = recorder.peakPower
+        let averagePower = mixedAudioWriter?.averagePower ?? recorder.averagePower
+        let peakPower = mixedAudioWriter?.peakPower ?? recorder.peakPower
 
         // Normalize values
         let minVisibleDb: Float = -60.0
@@ -236,6 +302,14 @@ class Recorder: NSObject, ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
         recorder?.teardown()
+        let capture = systemAudioCapture
+        let writer = mixedAudioWriter
+        if capture != nil || writer != nil {
+            Task {
+                await capture?.stop()
+                writer?.finish(at: MixedAudioWriter.hostTime)
+            }
+        }
     }
 }
 

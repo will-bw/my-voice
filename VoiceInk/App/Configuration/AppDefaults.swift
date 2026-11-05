@@ -209,6 +209,7 @@ enum AppDefaults {
             "useAppleScriptPaste": false,
 
             // Audio & Media
+            AudioCaptureSettings.includeSystemAudioKey: false,
             "isSystemMuteEnabled": true,
             "audioResumptionDelay": 0.0,
             "isPauseMediaEnabled": false,

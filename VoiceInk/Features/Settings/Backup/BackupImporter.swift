@@ -203,6 +203,9 @@ enum BackupImporter {
         if let muteSystem = general.isSystemMuteEnabled {
             mediaController.isSystemMuteEnabled = muteSystem
         }
+        if let includeSystemAudio = general.includeSystemAudio {
+            UserDefaults.standard.set(includeSystemAudio, forKey: AudioCaptureSettings.includeSystemAudioKey)
+        }
         if let pauseMedia = general.isPauseMediaEnabled {
             playbackController.isPauseMediaEnabled = pauseMedia
         }
