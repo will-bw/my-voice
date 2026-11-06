@@ -81,4 +81,12 @@ If you have any questions or need clarification, feel free to:
 2. Start a discussion
 3. Reach out to the maintainers
 
-Thank you for contributing to VoiceInk! 🎉 
+Thank you for contributing to VoiceInk! 🎉
+
+## Repository scope
+
+Keep source code, tests, reusable build/evaluation tools, application resources, dependency locks, licenses, and public usage/build instructions in Git.
+
+The `docs/` directory is for local requirements, design proposals, reviews, progress notes, and machine-specific verification records. Keep these files on disk and maintain them alongside related work; they are intentionally ignored. Local agent instructions, recordings, exports, diagnostics, credentials, and generated build/test results are also excluded. Put reusable public guidance in the root documentation rather than linking to ignored process files.
+
+To stop publishing an existing local file, remove it from the Git index with `git rm --cached` and add an ignore rule; do not delete its working copy. Review the commits being pushed as well as the final file tree: ignore rules do not remove files from older commits.

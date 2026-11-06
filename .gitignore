@@ -117,3 +117,27 @@ personal-hotwords*.json
 *.p12
 *.p8
 *.mobileprovision
+
+# Local planning, design, reviews, and execution records (maintain on disk)
+/docs/
+/AGENTS.md
+/.local/
+/.codex/
+/.agents/
+
+# Local diagnostics, exports, and generated build/test output
+DerivedData/
+*.xcresult/
+*.xcarchive/
+*.log
+/recordings/
+/transcripts/
+/diagnostics/
+/exports/
+/backups/
+
+# Local signing keys and credentials
+*.pem
+*.key
+/credentials/
+/secrets/
